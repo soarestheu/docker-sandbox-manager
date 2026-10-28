@@ -1,0 +1,52 @@
+name: Release App
+
+on:
+  push:
+    tags:
+      - 'v*' # Dispara a action sempre que você subir uma tag que comece com 'v' (ex: v0.1.0, v1.0.0)
+
+jobs:
+  release:
+    permissions:
+      contents: write # Permissão obrigatória para a Action criar a release e anexar os instaladores
+    strategy:
+      fail-fast: false
+      matrix:
+        # Define os sistemas operacionais que rodarão em paralelo na nuvem
+        platform: [ubuntu-latest, windows-latest]
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Rust Stable
+        uses: dtolnay/rust-toolchain@stable
+
+      # Instala as dependências obrigatórias de sistema apenas na máquina virtual do Linux
+      - name: Install Ubuntu Dependencies
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Install Node Dependencies
+        run: npm install
+
+      # Executa o build de produção e cria a release no GitHub anexando os binários compilados
+      - name: Build Tauri App & Publish
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Docker Sandbox Manager ${{ github.ref_name }}'
+          releaseBody: 'Release automatizada gerada via GitHub Actions.'
+          releaseDraft: false
+          prerelease: false
