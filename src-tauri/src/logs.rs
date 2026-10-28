@@ -88,11 +88,21 @@ struct EndPayload {
 pub async fn start_service_logs(
     app: AppHandle,
     project_path: String,
+    docker_context: String,
+    profiles: Vec<String>,
+    env_file: Option<String>,
     service: String,
     stream_id: String,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        crate::docker::validate_services(&project_path, std::slice::from_ref(&service))?;
+        crate::docker::validate_context(&docker_context)?;
+        let options = crate::docker::ComposeOptions { profiles, env_file };
+        crate::docker::validate_services_with_options(
+            Some(&docker_context),
+            &project_path,
+            &options,
+            std::slice::from_ref(&service),
+        )?;
         let state = app.state::<LogStreams>();
         let mut streams = state
             .0
@@ -105,16 +115,17 @@ pub async fn start_service_logs(
             return Err("Esta captura já está aberta.".into());
         }
         let mut command = Command::new("docker");
+        command.args(["--context", &docker_context, "compose"]);
+        for profile in &options.profiles {
+            crate::docker::validate_profile(profile)?;
+            command.args(["--profile", profile]);
+        }
+        if let Some(env_file) = options.env_file.as_deref() {
+            crate::docker::validate_env_file(&project_path, env_file)?;
+            command.args(["--env-file", env_file]);
+        }
         command
-            .args([
-                "compose",
-                "logs",
-                "--follow",
-                "--tail",
-                "100",
-                "--no-color",
-                &service,
-            ])
+            .args(["logs", "--follow", "--tail", "100", "--no-color", &service])
             .current_dir(project_path)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

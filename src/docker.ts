@@ -14,6 +14,7 @@ export interface ComposeService {
     containers: number;
     running_containers: number;
     ports: ServicePort[];
+    dependencies: string[];
 }
 
 export interface ProjectState {
@@ -26,6 +27,8 @@ export interface Project extends ProjectState {
     path: string;
     has_docker: boolean;
     error: string | null;
+    profiles: string[];
+    env_files: string[];
 }
 
 export function displayPorts(ports: ServicePort[]): (ServicePort & { host_ips: string[] })[] {

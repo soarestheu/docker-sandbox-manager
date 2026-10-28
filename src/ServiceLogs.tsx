@@ -5,11 +5,17 @@ import { filterLogLines, isLogError } from './workspace';
 
 interface Props {
     projectPath: string;
+    dockerContext: string;
+    profiles: string[];
+    envFile: string | null;
     service: string;
     onClose: () => void;
+    semanticErrors: boolean;
 }
 
-export default function ServiceLogs({ projectPath, service, onClose }: Props) {
+export default function ServiceLogs({
+    projectPath, dockerContext, profiles, envFile, service, onClose, semanticErrors,
+}: Props) {
     const [lines, setLines] = useState<string[]>([]);
     const [error, setError] = useState('');
     const [status, setStatus] = useState('Conectando…');
@@ -17,7 +23,7 @@ export default function ServiceLogs({ projectPath, service, onClose }: Props) {
     const [errorsOnly, setErrorsOnly] = useState(false);
     const [exporting, setExporting] = useState(false);
     const [exportMessage, setExportMessage] = useState('');
-    const visibleLines = filterLogLines(lines, query, errorsOnly);
+    const visibleLines = filterLogLines(lines, query, semanticErrors && errorsOnly);
 
     const exportLogs = async () => {
         setExporting(true);
@@ -61,7 +67,9 @@ export default function ServiceLogs({ projectPath, service, onClose }: Props) {
                 unlisteners.push(unlistenEnd);
                 if (disposed) { unlistenEnd(); return; }
                 setStatus('Capturando');
-                await invoke('start_service_logs', { projectPath, service, streamId });
+                await invoke('start_service_logs', {
+                    projectPath, dockerContext, profiles, envFile, service, streamId,
+                });
                 started = true;
                 if (disposed) await stop();
             } catch (err) {
@@ -77,7 +85,7 @@ export default function ServiceLogs({ projectPath, service, onClose }: Props) {
             unlisteners.forEach(unlisten => unlisten());
             if (started) void stop();
         };
-    }, [projectPath, service]);
+    }, [projectPath, dockerContext, profiles, envFile, service]);
 
     return (
         <section className="log-panel" aria-label={`Logs de ${service}`}>
@@ -90,10 +98,10 @@ export default function ServiceLogs({ projectPath, service, onClose }: Props) {
             </div>
             <div className="log-toolbar">
                 <input className="utility-input" aria-label={`Buscar nos logs de ${service}`} placeholder="Buscar nos logs…" value={query} onChange={event => setQuery(event.target.value)} />
-                <label className="select-all">
+                {semanticErrors && <label className="select-all">
                     <input type="checkbox" checked={errorsOnly} onChange={event => setErrorsOnly(event.target.checked)} />
-                    Somente erros
-                </label>
+                    Somente erros (semântico)
+                </label>}
                 <button className="button button-quiet" disabled={exporting || visibleLines.length === 0} onClick={exportLogs}>
                     {exporting ? 'Exportando…' : 'Exportar exibidos'}
                 </button>

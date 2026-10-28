@@ -1,8 +1,59 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream};
+use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct ComposeOptions {
+    #[serde(default)]
+    pub profiles: Vec<String>,
+    #[serde(default)]
+    pub env_file: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct DockerContext {
+    #[serde(rename(deserialize = "Name", serialize = "name"))]
+    pub name: String,
+    #[serde(rename(deserialize = "Current", serialize = "current"), default)]
+    pub current: bool,
+}
+
+pub fn docker_contexts() -> Result<Vec<DockerContext>, String> {
+    let output = Command::new("docker")
+        .args(["context", "ls", "--format", "{{json .}}"])
+        .output()
+        .map_err(|err| format!("Falha ao listar contextos Docker: {err}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "Docker context ls: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let text = String::from_utf8(output.stdout)
+        .map_err(|err| format!("Resposta inválida do Docker: {err}"))?;
+    text.lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| {
+            serde_json::from_str(line).map_err(|err| format!("Contexto Docker inválido: {err}"))
+        })
+        .collect()
+}
+
+pub fn validate_context(context: &str) -> Result<(), String> {
+    if context.is_empty()
+        || context.starts_with('-')
+        || !context.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-')
+        })
+    {
+        return Err("Nome de contexto Docker inválido.".into());
+    }
+    Ok(())
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ServicePort {
@@ -22,12 +73,19 @@ pub struct ComposeService {
     pub containers: usize,
     pub running_containers: usize,
     pub ports: Vec<ServicePort>,
+    pub dependencies: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
 pub struct ProjectState {
     pub status: String,
     pub services: Vec<ComposeService>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct ProjectDiagnostic {
+    pub severity: String,
+    pub message: String,
 }
 
 #[derive(Default, Deserialize)]
@@ -41,6 +99,24 @@ struct ServiceConfig {
     image: String,
     #[serde(default)]
     ports: Vec<ConfigPort>,
+    #[serde(default)]
+    depends_on: Option<Dependencies>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Dependencies {
+    Names(Vec<String>),
+    Conditions(BTreeMap<String, Value>),
+}
+
+impl Dependencies {
+    fn names(self) -> Vec<String> {
+        match self {
+            Self::Names(names) => names,
+            Self::Conditions(conditions) => conditions.into_keys().collect(),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -86,9 +162,35 @@ fn default_protocol() -> String {
     "tcp".into()
 }
 
-pub fn compose_output(project_path: &str, args: &[&str]) -> Result<String, String> {
-    let output = Command::new("docker")
-        .arg("compose")
+pub fn compose_output_in_context(
+    context: Option<&str>,
+    project_path: &str,
+    args: &[&str],
+) -> Result<String, String> {
+    compose_output_with_options(context, project_path, &ComposeOptions::default(), args)
+}
+
+pub fn compose_output_with_options(
+    context: Option<&str>,
+    project_path: &str,
+    options: &ComposeOptions,
+    args: &[&str],
+) -> Result<String, String> {
+    let mut command = Command::new("docker");
+    if let Some(context) = context {
+        validate_context(context)?;
+        command.args(["--context", context]);
+    }
+    command.arg("compose");
+    for profile in &options.profiles {
+        validate_profile(profile)?;
+        command.args(["--profile", profile]);
+    }
+    if let Some(env_file) = options.env_file.as_deref() {
+        validate_env_file(project_path, env_file)?;
+        command.args(["--env-file", env_file]);
+    }
+    let output = command
         .args(args)
         .current_dir(project_path)
         .output()
@@ -101,9 +203,146 @@ pub fn compose_output(project_path: &str, args: &[&str]) -> Result<String, Strin
             String::from_utf8_lossy(&output.stderr).trim()
         ));
     }
-
     String::from_utf8(output.stdout)
         .map_err(|err| format!("Resposta inválida do Docker Compose: {err}"))
+}
+
+pub fn validate_profile(profile: &str) -> Result<(), String> {
+    if profile.is_empty()
+        || profile.starts_with('-')
+        || !profile.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-')
+        })
+    {
+        return Err(format!("Perfil Compose inválido: {profile}"));
+    }
+    Ok(())
+}
+
+pub fn validate_env_file(project_path: &str, env_file: &str) -> Result<(), String> {
+    let name = Path::new(env_file);
+    let path = Path::new(project_path).join(name);
+    if !env_file.starts_with(".env")
+        || name.file_name().and_then(|value| value.to_str()) != Some(env_file)
+    {
+        return Err("Arquivo de ambiente inválido para este projeto.".into());
+    }
+    let metadata = std::fs::symlink_metadata(path)
+        .map_err(|err| format!("Erro ao verificar arquivo de ambiente: {err}"))?;
+    if !metadata.file_type().is_file() {
+        return Err("Arquivo de ambiente inválido para este projeto.".into());
+    }
+    Ok(())
+}
+
+pub fn project_metadata_in_context(
+    context: Option<&str>,
+    project_path: &str,
+) -> Result<(Vec<String>, Vec<String>), String> {
+    let profiles = compose_output_in_context(context, project_path, &["config", "--profiles"])?
+        .lines()
+        .map(str::trim)
+        .filter(|profile| !profile.is_empty())
+        .map(str::to_string)
+        .collect();
+    let entries = std::fs::read_dir(project_path)
+        .map_err(|err| format!("Erro ao listar arquivos de ambiente: {err}"))?;
+    let mut env_files = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|err| format!("Erro ao ler arquivo de ambiente: {err}"))?;
+        let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+            continue;
+        };
+        if name != ".env" && !name.starts_with(".env.") {
+            continue;
+        }
+        let metadata = entry
+            .path()
+            .symlink_metadata()
+            .map_err(|err| format!("Erro ao verificar arquivo de ambiente {name}: {err}"))?;
+        if metadata.file_type().is_file() {
+            env_files.push(name);
+        }
+    }
+    env_files.sort();
+    Ok((profiles, env_files))
+}
+
+pub fn diagnose_project(
+    context: Option<&str>,
+    project_path: &str,
+    options: &ComposeOptions,
+) -> Result<Vec<ProjectDiagnostic>, String> {
+    let config_output = compose_output_with_options(
+        context,
+        project_path,
+        options,
+        &["config", "--format", "json"],
+    )?;
+    let config: ComposeConfig = serde_json::from_str(&config_output)
+        .map_err(|error| format!("Configuração Compose inválida: {error}"))?;
+    let container_output = compose_output_with_options(
+        context,
+        project_path,
+        options,
+        &["ps", "--all", "--orphans", "--format", "json"],
+    )?;
+    let containers = parse_containers(&container_output)?;
+    let mut diagnostics = Vec::new();
+    let mut orphans = containers
+        .iter()
+        .filter(|container| !config.services.contains_key(&container.service))
+        .map(|container| container.service.clone())
+        .collect::<Vec<_>>();
+    orphans.sort();
+    orphans.dedup();
+    for service in orphans {
+        diagnostics.push(ProjectDiagnostic {
+            severity: "warning".into(),
+            message: format!(
+                "Container órfão do serviço {service}; ele não existe mais na configuração atual."
+            ),
+        });
+    }
+
+    let mut published = BTreeMap::<(String, u16, String), Vec<String>>::new();
+    for (service, definition) in &config.services {
+        for port in &definition.ports {
+            let Some(number) = port
+                .published
+                .as_deref()
+                .and_then(|value| value.parse().ok())
+            else {
+                continue;
+            };
+            published
+                .entry((port.host_ip.clone(), number, port.protocol.clone()))
+                .or_default()
+                .push(service.clone());
+        }
+    }
+    for ((host, port, protocol), mut services) in published {
+        services.sort();
+        services.dedup();
+        if services.len() > 1 {
+            diagnostics.push(ProjectDiagnostic {
+                severity: "warning".into(),
+                message: format!(
+                    "Porta publicada {host}:{port}/{protocol} está declarada em múltiplos serviços: {}.",
+                    services.join(", ")
+                ),
+            });
+        }
+    }
+
+    if diagnostics.is_empty() {
+        diagnostics.push(ProjectDiagnostic {
+            severity: "ok".into(),
+            message: "Nenhum problema comum foi encontrado na configuração e nos containers."
+                .into(),
+        });
+    }
+    Ok(diagnostics)
 }
 
 fn parse_containers(output: &str) -> Result<Vec<Container>, String> {
@@ -208,6 +447,12 @@ fn build_state(config: ComposeConfig, containers: Vec<Container>) -> ProjectStat
                 }
             }
 
+            let mut dependencies = definition
+                .depends_on
+                .map(Dependencies::names)
+                .unwrap_or_default();
+            dependencies.sort();
+            dependencies.dedup();
             ComposeService {
                 name,
                 image: definition.image,
@@ -216,6 +461,7 @@ fn build_state(config: ComposeConfig, containers: Vec<Container>) -> ProjectStat
                 containers: instances.len(),
                 running_containers: running,
                 ports,
+                dependencies,
             }
         })
         .collect();
@@ -251,11 +497,32 @@ fn probe_port(port: &ServicePort) -> Result<bool, String> {
     .is_ok())
 }
 
-pub fn project_state(project_path: &str) -> Result<ProjectState, String> {
-    let config = compose_output(project_path, &["config", "--format", "json"])?;
+pub fn project_state_in_context(
+    context: Option<&str>,
+    project_path: &str,
+) -> Result<ProjectState, String> {
+    project_state_with_options(context, project_path, &ComposeOptions::default())
+}
+
+pub fn project_state_with_options(
+    context: Option<&str>,
+    project_path: &str,
+    options: &ComposeOptions,
+) -> Result<ProjectState, String> {
+    let config = compose_output_with_options(
+        context,
+        project_path,
+        options,
+        &["config", "--format", "json"],
+    )?;
     let config = serde_json::from_str(&config)
         .map_err(|err| format!("Configuração Compose inválida: {err}"))?;
-    let containers = compose_output(project_path, &["ps", "--all", "--format", "json"])?;
+    let containers = compose_output_with_options(
+        context,
+        project_path,
+        options,
+        &["ps", "--all", "--format", "json"],
+    )?;
     let mut state = build_state(config, parse_containers(&containers)?);
     for service in &mut state.services {
         if service.running_containers == 0 {
@@ -274,7 +541,23 @@ fn action_args(action: &str, services: Option<&[String]>) -> Result<Vec<String>,
     let mut args: Vec<String> = match action {
         "up" if services.is_some() => vec!["up".into(), "-d".into(), "--no-deps".into()],
         "up" => vec!["up".into(), "-d".into()],
+        "up_with_deps" if services.is_some() => {
+            vec!["up".into(), "-d".into(), "--with-dependencies".into()]
+        }
+        "up_with_deps" => vec!["up".into(), "-d".into()],
+        "pull" => vec!["pull".into()],
+        "build" => vec!["build".into()],
+        "recreate" if services.is_some() => {
+            vec![
+                "up".into(),
+                "-d".into(),
+                "--no-deps".into(),
+                "--force-recreate".into(),
+            ]
+        }
+        "recreate" => vec!["up".into(), "-d".into(), "--force-recreate".into()],
         "stop" => vec!["stop".into()],
+        "unpause" if services.is_some() => vec!["unpause".into()],
         "down" if services.is_none() => vec!["down".into()],
         _ => return Err("Ação Docker inválida para esta seleção.".into()),
     };
@@ -290,22 +573,29 @@ fn action_args(action: &str, services: Option<&[String]>) -> Result<Vec<String>,
     Ok(args)
 }
 
-pub fn execute_action(
+pub fn execute_action_with_options(
+    context: Option<&str>,
     project_path: &str,
+    options: &ComposeOptions,
     action: &str,
     services: Option<&[String]>,
 ) -> Result<(), String> {
     let args = action_args(action, services)?;
     if let Some(services) = services {
-        validate_services(project_path, services)?;
+        validate_services_with_options(context, project_path, options, services)?;
     }
 
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
-    compose_output(project_path, &args)?;
+    compose_output_with_options(context, project_path, options, &args)?;
     Ok(())
 }
 
-pub fn validate_services(project_path: &str, services: &[String]) -> Result<(), String> {
+pub fn validate_services_with_options(
+    context: Option<&str>,
+    project_path: &str,
+    options: &ComposeOptions,
+    services: &[String],
+) -> Result<(), String> {
     if services.is_empty()
         || services
             .iter()
@@ -313,7 +603,12 @@ pub fn validate_services(project_path: &str, services: &[String]) -> Result<(), 
     {
         return Err("Seleção de serviços inválida.".into());
     }
-    let config = compose_output(project_path, &["config", "--format", "json"])?;
+    let config = compose_output_with_options(
+        context,
+        project_path,
+        options,
+        &["config", "--format", "json"],
+    )?;
     let config: ComposeConfig = serde_json::from_str(&config)
         .map_err(|err| format!("Configuração Compose inválida: {err}"))?;
     for name in services {
@@ -331,11 +626,54 @@ mod tests {
     fn config() -> ComposeConfig {
         serde_json::from_str(r#"{
             "services": {
-                "api": {"image":"example/api","ports":[{"target":3000,"published":"8080","host_ip":"127.0.0.1"}]},
+                "api": {"image":"example/api","depends_on":{"db":{"condition":"service_started"}},"ports":[{"target":3000,"published":"8080","host_ip":"127.0.0.1"}]},
                 "db": {"image":"postgres","ports":[{"target":5432,"published":"55432"}]},
-                "worker": {"image":"example/worker"}
+                "worker": {"image":"example/worker","depends_on":["api"]}
             }
         }"#).unwrap()
+    }
+
+    #[test]
+    fn docker_context_names_are_safe_cli_arguments() {
+        assert!(validate_context("default").is_ok());
+        assert!(validate_context("remote-prod_2").is_ok());
+        for invalid in ["", "--help", "my context", "remote;docker"] {
+            assert!(validate_context(invalid).is_err(), "{invalid}");
+        }
+    }
+
+    #[test]
+    fn docker_contexts_use_cli_names_internally_and_camel_case_for_the_frontend() {
+        let context: DockerContext =
+            serde_json::from_str(r#"{"Name":"default","Current":true}"#).unwrap();
+        assert_eq!(context.name, "default");
+        assert!(context.current);
+        assert_eq!(
+            serde_json::to_string(&context).unwrap(),
+            r#"{"name":"default","current":true}"#
+        );
+    }
+
+    #[test]
+    fn compose_profiles_and_env_files_are_validated_without_exposing_contents() {
+        assert!(validate_profile("dev.local-2").is_ok());
+        assert!(validate_profile("--help").is_err());
+        let directory = std::env::temp_dir().join(format!(
+            "docker-sandbox-env-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let env_path = directory.join(".env.dev");
+        std::fs::write(&env_path, "SECRET=value").unwrap();
+        assert!(validate_env_file(directory.to_str().unwrap(), ".env.dev").is_ok());
+        assert!(validate_env_file(directory.to_str().unwrap(), "../.env.dev").is_err());
+        assert!(validate_env_file(directory.to_str().unwrap(), "Cargo.toml").is_err());
+        std::fs::remove_file(env_path).unwrap();
+        std::fs::remove_dir(directory).unwrap();
     }
 
     #[test]
@@ -379,8 +717,10 @@ mod tests {
         assert_eq!(state.services[0].ports[0].published, 49153);
         assert_eq!(state.services[0].ports[0].target, 3000);
         assert_eq!(state.services[0].health, "healthy");
+        assert_eq!(state.services[0].dependencies, ["db"]);
         assert!(state.services[2].ports.is_empty());
         assert_eq!(state.services[2].state, "running");
+        assert_eq!(state.services[2].dependencies, ["api"]);
     }
 
     #[test]
@@ -434,11 +774,33 @@ mod tests {
             action_args("stop", Some(&services)).unwrap(),
             ["stop", "api", "worker"]
         );
+        assert_eq!(
+            action_args("unpause", Some(&services)).unwrap(),
+            ["unpause", "api", "worker"]
+        );
         assert!(action_args("up", Some(&[])).is_err());
         assert!(action_args("down", Some(&services)).is_err());
+        assert!(action_args("unpause", None).is_err());
         assert!(action_args("stop", Some(&["--all".into()])).is_err());
         assert_eq!(action_args("up", None).unwrap(), ["up", "-d"]);
         assert_eq!(action_args("down", None).unwrap(), ["down"]);
+        assert_eq!(
+            action_args("up_with_deps", Some(&services)).unwrap(),
+            ["up", "-d", "--with-dependencies", "api", "worker"]
+        );
+        assert_eq!(
+            action_args("pull", Some(&services)).unwrap(),
+            ["pull", "api", "worker"]
+        );
+        assert_eq!(action_args("build", None).unwrap(), ["build"]);
+        assert_eq!(
+            action_args("recreate", Some(&services)).unwrap(),
+            ["up", "-d", "--no-deps", "--force-recreate", "api", "worker"]
+        );
+        assert_eq!(
+            action_args("recreate", None).unwrap(),
+            ["up", "-d", "--force-recreate"]
+        );
     }
 
     #[test]
@@ -452,7 +814,17 @@ mod tests {
             is_open: None,
         };
         assert!(probe_port(&port).unwrap());
+        drop(listener.accept().unwrap().0);
         drop(listener);
-        assert!(!probe_port(&port).unwrap());
+        assert!(
+            !probe_port(&ServicePort {
+                host_ip: "127.0.0.1".into(),
+                published: 0,
+                target: 5432,
+                protocol: "tcp".into(),
+                is_open: None,
+            })
+            .unwrap()
+        );
     }
 }

@@ -38,13 +38,31 @@ Alterar qualquer filtro limpa as seleções e fecha os painéis de logs/métrica
 
 Cada tag de porta permite **Copiar** o endereço do host. Portas TCP de serviços ativos também permitem **Abrir HTTP** no navegador padrão (HTTPS para destinos 443/8443). Endereços de publicação genéricos usam `localhost`, e IPv6 específico usa colchetes. A abertura é um atalho explícito: portas de bancos ou outros protocolos TCP não passam a oferecer HTTP por causa dele.
 
-Clique em **Métricas** no serviço para consultar CPU e memória de cada container/réplica em execução. É uma leitura pontual com `docker stats --no-stream`, sem coleta periódica. **Atualizar métricas** faz uma nova consulta; fechar ou recolher o projeto remove o painel. Serviços parados informam que não há containers ativos.
+Clique em **Métricas** no serviço para consultar CPU e memória de cada container/réplica em execução. O painel atualiza a cada três segundos e mantém até 120 amostras locais por container para visualizar a tendência recente; cada série é limitada a 100 containers. Os limites de CPU e memória são configuráveis por projeto/contexto/serviço. Ao ultrapassá-los, o painel destaca o valor e, se as notificações estiverem habilitadas, envia um alerta desktop. Fechar ou recolher o projeto remove o painel. Serviços parados informam que não há containers ativos.
+
+## Contextos e opções do Compose
+
+O seletor **Contexto Docker** lista os contextos disponíveis no CLI e aplica a seleção às consultas, ações, logs, métricas e recursos. A escolha fica salva localmente. Use **Opções do Compose** em cada projeto para ativar perfis e selecionar um arquivo `.env` localizado na raiz do projeto; a lista inclui arquivos `.env` e `.env.*` regulares, não segue links simbólicos e nunca exibe seus valores. As opções são aplicadas às operações daquele projeto e persistidas localmente.
+
+## Ações, presets e dependências
+
+Além de iniciar/parar, o projeto oferece **Pull**, **Build** e **Recriar**. As ações em serviços selecionados continuam disponíveis; a inicialização padrão não inicia dependências automaticamente. A opção **Iniciar com dependências** e o mapa de dependências usam a relação `depends_on` da configuração Compose.
+
+Presets permitem salvar grupos de serviços com um nome e iniciar ou parar esse conjunto em um clique. Eles são armazenados no navegador local e associados ao caminho do projeto.
+
+## Terminal, diagnóstico e recursos
+
+**Terminal** abre um shell `sh` no container do serviço selecionado, com entrada e saída de texto. Ele usa `docker compose exec -i -T` sem pseudo-terminal, portanto é um shell de linha de comando (não um terminal gráfico interativo); fechar o painel encerra o processo. É necessário que o serviço esteja em execução e tenha `sh`.
+
+**Diagnóstico** verifica problemas comuns da configuração, containers órfãos e portas publicadas declaradas em mais de um serviço. O inventário de **Volumes e redes** mostra recursos Compose identificados pelo projeto. A remoção exige confirmação e só é permitida para recursos marcados com o projeto, sem containers associados; o backend repete a validação antes de remover.
+
+Use **Ativar notificações** para solicitar permissão do sistema. Notificações de estado são enviadas quando um container muda para `unhealthy`/`dead` ou se recupera; o painel de métricas também pode notificar limites de CPU/memória. O sistema operacional pode exigir uma permissão adicional. Os alertas de recursos dependem do painel de métricas estar aberto.
 
 ## Pesquisa e exportação de logs
 
 No painel de logs, combine busca textual e **Somente erros** (error, fail/failed/failure, fatal, panic e exception). Os filtros não reiniciam a captura. **Exportar exibidos** salva somente as linhas que passaram pelos filtros em um arquivo `.log` UTF-8 na pasta de Downloads do sistema, com nome do serviço e identificador temporal, sem sobrescrever exportações anteriores. O caminho salvo ou o erro é exibido no próprio painel.
 
-É necessário Docker com o plugin Compose compatível com saída JSON e acesso ao daemon local.
+É necessário Docker com o plugin Compose compatível com saída JSON e acesso ao daemon do contexto selecionado. O terminal depende de containers em execução com `sh`; o suporte a contextos, métricas, notificações e recursos também depende das capacidades disponíveis no Docker, no sistema operacional e na compilação Tauri.
 
 ## Desenvolvimento
 
