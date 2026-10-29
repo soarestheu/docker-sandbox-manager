@@ -5,6 +5,7 @@ import { isPermissionGranted, requestPermission, sendNotification } from '@tauri
 import { displayPorts, isProjectActive, isServiceActive, portStateLabel, serviceStateLabel } from './docker';
 import type { Project, ProjectState } from './docker';
 import Icon from './Icon';
+import { useUpdater } from './useUpdater';
 import ServiceLogs from './ServiceLogs';
 import ServiceMetrics from './ServiceMetrics';
 import ServiceTerminal from './ServiceTerminal';
@@ -50,6 +51,7 @@ interface ProjectResources {
 const EMPTY_COMPOSE_OPTIONS: ProjectComposeOptions = { profiles: [], envFile: null };
 
 export default function App() {
+    const updater = useUpdater();
     const [searchPath, setSearchPath] = useState('');
     const [projects, setProjects] = useState<Project[]>([]);
     const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
@@ -726,6 +728,22 @@ export default function App() {
                         </button>
                     </div>
                 </header>
+
+                {updater.state.status !== 'idle' && !(updater.dismissed && updater.state.status === 'available') && (
+                    <div className="update-banner" role="status">
+                        {updater.state.status === 'available' && (
+                            <>
+                                <span>Nova versão <strong>{updater.state.version}</strong> disponível.</span>
+                                <button className="button button-primary" onClick={() => void updater.install()}>Atualizar agora</button>
+                                <button className="icon-button" onClick={updater.dismiss} aria-label="Dispensar aviso de atualização" title="Depois"><Icon name="close" /></button>
+                            </>
+                        )}
+                        {updater.state.status === 'downloading' && (
+                            <span>Baixando {updater.state.version}{updater.state.progress !== null ? ` — ${updater.state.progress}%` : '…'}</span>
+                        )}
+                        {updater.state.status === 'error' && <span>Falha ao atualizar: {updater.state.message}</span>}
+                    </div>
+                )}
 
                 <section className="summary-bar" aria-label="Resumo dos projetos">
                     <span className="summary-item" role="status">

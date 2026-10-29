@@ -751,3 +751,21 @@ details[open] > summary.icon-button {
 :root[data-theme="light"] .service-row {
   color: #1c2738;
 }
+
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 10px 0;
+  padding: 8px 12px;
+  border: 1px solid rgba(112, 167, 255, 0.4);
+  border-radius: 10px;
+  background: rgba(112, 167, 255, 0.12);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.update-banner .button-primary {
+  min-height: 30px;
+  margin-left: auto;
+}
