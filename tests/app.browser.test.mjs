@@ -52,6 +52,7 @@ function mockTauri() {
             window.testCalls.push({ command, args });
             if (command === 'plugin:event|listen') { listeners.set(++nextId, args); return nextId; }
             if (command === 'plugin:event|unlisten') return;
+            if (command === 'plugin:dialog|open') return '/fixture';
             if (command === 'start_service_logs') {
                 if (window.holdNextLogs) {
                     window.holdNextLogs = false;
@@ -208,6 +209,13 @@ test('service selection, scoped actions, stale polling and project stop in the b
         await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
         await send('Page.navigate', { url });
         await waitFor('document.querySelectorAll(".service-row").length === 3');
+        await waitFor('document.querySelector(\'[aria-label="Workspaces recentes"] option[value="/fixture"]\') !== null');
+        await evaluate('document.querySelector(".scan-form button").click()');
+        await waitFor('window.testCalls.some(call => call.command === "plugin:dialog|open")');
+        await waitFor('window.testCalls.filter(call => call.command === "scan_directory").length >= 2');
+        assert.equal(await evaluate('window.testCalls.filter(call => call.command === "scan_directory").at(-1).args.basePath'), '/fixture');
+        await input('[aria-label="Workspaces recentes"]', '/fixture');
+        await waitFor('window.testCalls.filter(call => call.command === "scan_directory").length >= 3');
         await evaluate('document.querySelector(\'[aria-label="Expandir projeto sample"]\').click()');
         await waitFor('document.querySelector(".service-list").getClientRects().length > 0');
         await input('[aria-label="Contexto Docker"]', 'staging');

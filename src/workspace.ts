@@ -17,6 +17,7 @@ export interface ServicePreset {
     services: string[];
 }
 export type ServicePresets = Record<string, ServicePreset[]>;
+export const MAX_RECENT_WORKSPACES = 8;
 export type StatusFilter = 'all' | 'active' | 'stopped' | 'failed';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -26,6 +27,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isStringArray(value: unknown): value is string[] {
     return Array.isArray(value) && value.every((item: unknown) => typeof item === 'string');
 }
+
+export function parseRecentWorkspaces(raw: string | null): string[] {
+    if (!raw) return [];
+    const value: unknown = JSON.parse(raw);
+    if (!Array.isArray(value) || !value.every(path => typeof path === 'string')) {
+        throw new Error('Histórico de workspaces inválido.');
+    }
+    return [...new Set(value.filter(path => path.trim()))].slice(0, MAX_RECENT_WORKSPACES);
+}
+
+export function rememberWorkspace(recent: string[], path: string): string[] {
+    if (!path.trim()) return recent.slice(0, MAX_RECENT_WORKSPACES);
+    return [path, ...recent.filter(item => item !== path)]
+        .slice(0, MAX_RECENT_WORKSPACES);
+}
+
 export type ServiceSort = 'active' | 'name' | 'state';
 
 export interface FeatureFlags {

@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
     defaultFeatureFlags, filterLogLines, isLogError, parseFeatureFlags, parsePreferences, portAddress,
-    parseServicePresets, projectMatches, servicesForFilter, sortServices,
+    parseRecentWorkspaces, parseServicePresets, projectMatches, rememberWorkspace, servicesForFilter,
+    sortServices,
 } from '../src/workspace.ts';
 
 const api = { name: 'api', image: 'my-api', state: 'running', health: '', containers: 1, running_containers: 1, ports: [] };
@@ -70,6 +71,23 @@ test('service presets roundtrip and reject empty or malformed selections', () =>
     assert.deepEqual(parseServicePresets(null), {});
     for (const raw of ['bad json', '[]', '{"x":[{"name":"empty","services":[]}]}']) {
         assert.throws(() => parseServicePresets(raw));
+    }
+});
+
+test('recent workspaces are deduplicated, newest-first, bounded and validated', () => {
+    const recent = Array.from({ length: 10 }, (_, index) => `/projects/${index}`);
+    assert.deepEqual(parseRecentWorkspaces(JSON.stringify(recent)).length, 8);
+    assert.deepEqual(parseRecentWorkspaces(null), []);
+    assert.deepEqual(parseRecentWorkspaces(JSON.stringify(['/projects/a', '', '/projects/a', '/projects/b'])), [
+        '/projects/a', '/projects/b',
+    ]);
+    assert.deepEqual(rememberWorkspace(recent, '/projects/4'), [
+        '/projects/4', '/projects/0', '/projects/1', '/projects/2',
+        '/projects/3', '/projects/5', '/projects/6', '/projects/7',
+    ]);
+    assert.deepEqual(rememberWorkspace(recent, ''), recent.slice(0, 8));
+    for (const raw of ['bad json', '{}', '["/projects/a", 1]']) {
+        assert.throws(() => parseRecentWorkspaces(raw));
     }
 });
 

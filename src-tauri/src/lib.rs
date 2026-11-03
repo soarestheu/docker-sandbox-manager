@@ -3,9 +3,8 @@ mod logs;
 mod terminals;
 mod utilities;
 
-use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 use tauri::Manager;
 
@@ -22,15 +21,14 @@ struct ProjectInfo {
 }
 
 #[tauri::command]
-fn get_default_projects_dir() -> String {
-    if let Ok(home) = env::var("HOME") {
-        let projetos_path = PathBuf::from(&home).join("Projetos");
-        if projetos_path.exists() {
-            return projetos_path.to_string_lossy().into_owned();
-        }
-        return home;
-    }
-    "/home".into()
+fn get_default_projects_dir(app: tauri::AppHandle) -> Result<String, String> {
+    let home = app
+        .path()
+        .home_dir()
+        .map_err(|err| format!("Erro ao localizar a pasta pessoal: {err}"))?;
+    let projects = home.join("Projetos");
+    let default = if projects.is_dir() { projects } else { home };
+    Ok(default.to_string_lossy().into_owned())
 }
 
 #[tauri::command]
@@ -216,6 +214,7 @@ async fn diagnose_project(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())

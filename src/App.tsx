@@ -1,6 +1,7 @@
 // src/App.tsx
 import { Fragment, useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { open as openDirectoryDialog } from '@tauri-apps/plugin-dialog';
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
 import { displayPorts, isProjectActive, isServiceActive, portStateLabel, serviceStateLabel } from './docker';
 import type { Project, ProjectState } from './docker';
@@ -10,8 +11,8 @@ import ServiceLogs from './ServiceLogs';
 import ServiceMetrics from './ServiceMetrics';
 import ServiceTerminal from './ServiceTerminal';
 import {
-    defaultFeatureFlags, parseFeatureFlags, parsePreferences, parseProjectComposeOptions, portAddress,
-    parseServicePresets, projectMatches, servicesForFilter,
+    defaultFeatureFlags, parseFeatureFlags, parsePreferences, parseProjectComposeOptions, parseRecentWorkspaces,
+    portAddress, parseServicePresets, projectMatches, rememberWorkspace, servicesForFilter,
     sortServices,
 } from './workspace';
 import type {
@@ -50,6 +51,11 @@ interface ProjectResources {
 
 const EMPTY_COMPOSE_OPTIONS: ProjectComposeOptions = { profiles: [], envFile: null };
 
+function workspaceLabel(path: string): string {
+    const segments = path.split(/[\\/]/).filter(Boolean);
+    return segments[segments.length - 1] || path;
+}
+
 export default function App() {
     const updater = useUpdater();
     const [searchPath, setSearchPath] = useState('');
@@ -59,6 +65,7 @@ export default function App() {
     const [notificationsEnabled, setNotificationsEnabled] = useState(false);
     const [dockerContexts, setDockerContexts] = useState<DockerContext[]>([]);
     const [dockerContext, setDockerContext] = useState('');
+    const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>([]);
 
     const [activeLogPanel, setActiveLogPanel] = useState<{ path: string; service: string } | null>(null);
     const [activeTerminalPanel, setActiveTerminalPanel] = useState<{ path: string; service: string } | null>(null);
@@ -99,6 +106,7 @@ export default function App() {
             setPreferences(parsePreferences(localStorage.getItem('sandbox-workspace')));
             setProjectOptions(parseProjectComposeOptions(localStorage.getItem('sandbox-compose-options')));
             setServicePresets(parseServicePresets(localStorage.getItem('sandbox-service-presets')));
+            setRecentWorkspaces(parseRecentWorkspaces(localStorage.getItem('sandbox-recent-workspaces')));
             setFeatures(parseFeatureFlags(localStorage.getItem('sandbox-features')));
             const savedTheme = localStorage.getItem('sandbox-theme');
             if (savedTheme === 'light' || savedTheme === 'dark') setTheme(savedTheme);
@@ -345,6 +353,19 @@ export default function App() {
         };
     }, [projectPathsKey]);
 
+    const recordRecentWorkspace = (path: string) => {
+        try {
+            const next = rememberWorkspace(
+                parseRecentWorkspaces(localStorage.getItem('sandbox-recent-workspaces')),
+                path,
+            );
+            localStorage.setItem('sandbox-recent-workspaces', JSON.stringify(next));
+            setRecentWorkspaces(next);
+        } catch (err) {
+            setMessage(`Erro ao salvar o histórico de workspaces: ${err}`);
+        }
+    };
+
     useEffect(() => {
         let disposed = false;
         async function init() {
@@ -365,7 +386,10 @@ export default function App() {
                 const result: Project[] = await invoke('scan_directory', {
                     basePath: defaultPath, dockerContext: context,
                 });
-                if (!disposed) setProjects(result);
+                if (!disposed) {
+                    setProjects(result);
+                    recordRecentWorkspace(defaultPath);
+                }
             } catch (err) {
                 if (!disposed) setMessage(`Erro ao carregar diretório padrão: ${err}`);
             } finally {
@@ -376,15 +400,17 @@ export default function App() {
         return () => { disposed = true; };
     }, []);
 
-    const handleScan = async () => {
-        if (!searchPath) return;
+    const scanWorkspace = async (path: string, context = dockerContext) => {
+        if (!path) return;
+        setSearchPath(path);
         setLoading(true);
         setMessage('');
         try {
             const result: Project[] = await invoke('scan_directory', {
-                basePath: searchPath, dockerContext,
+                basePath: path, dockerContext: context,
             });
             setProjects(result);
+            recordRecentWorkspace(path);
             setSelectedPaths([]);
             setSelectedServices({});
             setActiveLogPanel(null);
@@ -397,6 +423,24 @@ export default function App() {
         }
     };
 
+    const handleScan = async () => scanWorkspace(searchPath);
+
+    const handleChooseWorkspace = async () => {
+        try {
+            const selected = await openDirectoryDialog({
+                directory: true,
+                multiple: false,
+                title: 'Selecionar pasta dos projetos',
+                ...(searchPath ? { defaultPath: searchPath } : {}),
+            });
+            if (typeof selected !== 'string') return;
+            scanPopoverRef.current?.removeAttribute('open');
+            await scanWorkspace(selected);
+        } catch (err) {
+            setMessage(`Erro ao selecionar a pasta dos projetos: ${err}`);
+        }
+    };
+
     const handleContextChange = async (context: string) => {
         setDockerContext(context);
         try {
@@ -405,23 +449,7 @@ export default function App() {
             setMessage(`Erro ao salvar o contexto Docker: ${err}`);
         }
         if (!searchPath) return;
-        setLoading(true);
-        setMessage('');
-        try {
-            const result: Project[] = await invoke('scan_directory', {
-                basePath: searchPath, dockerContext: context,
-            });
-            setProjects(result);
-            setSelectedPaths([]);
-            setSelectedServices({});
-            setActiveLogPanel(null);
-            setActiveTerminalPanel(null);
-            setActiveMetrics(null);
-        } catch (err) {
-            setMessage(`Erro ao escanear contexto ${context}: ${err}`);
-        } finally {
-            setLoading(false);
-        }
+        await scanWorkspace(searchPath, context);
     };
 
     const performAction = async (path: string, action: ComposeAction, services?: string[]) => {
@@ -686,7 +714,7 @@ export default function App() {
                                 <details className="popover scan-popover" ref={scanPopoverRef}>
                                     <summary className="button button-quiet" title={searchPath || 'Escolher a pasta dos projetos'}>
                                         <Icon name="folder" />
-                                        <span className="scan-path-label">{searchPath.split('/').filter(Boolean).pop() || 'Escolher pasta'}</span>
+                                        <span className="scan-path-label">{searchPath ? workspaceLabel(searchPath) : 'Escolher pasta'}</span>
                                         <Icon name="chevron" size={14} />
                                     </summary>
                                     <div className="popover-panel scan-form" aria-label="Localizar projetos">
@@ -701,6 +729,32 @@ export default function App() {
                                                 aria-label="Caminho do diretório de projetos"
                                             />
                                         </label>
+                                        <button
+                                            className="button button-quiet"
+                                            onClick={() => void handleChooseWorkspace()}
+                                            disabled={loading || hasBusyProjects}
+                                        >Selecionar pasta…</button>
+                                        {recentWorkspaces.length > 0 && (
+                                            <label className="menu-field">
+                                                Workspaces recentes
+                                                <select
+                                                    className="utility-input"
+                                                    aria-label="Workspaces recentes"
+                                                    value=""
+                                                    disabled={loading || hasBusyProjects}
+                                                    onChange={event => {
+                                                        if (event.target.value) void scanWorkspace(event.target.value);
+                                                    }}
+                                                >
+                                                    <option value="">Selecionar workspace…</option>
+                                                    {recentWorkspaces.map(path => (
+                                                        <option key={path} value={path}>
+                                                            {workspaceLabel(path)} — {path}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </label>
+                                        )}
                                         <button className="button button-primary scan-button" onClick={handleScan} disabled={loading || hasBusyProjects || !searchPath.trim()}>
                                             {loading ? 'Sincronizando…' : 'Varrer diretório'}
                                         </button>

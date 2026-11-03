@@ -9,6 +9,7 @@
     "core:default",
     "core:event:default",
     "notification:default",
+    "dialog:default",
     "updater:default",
     "process:allow-restart"
   ]
