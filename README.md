@@ -1,77 +1,110 @@
-# Docker Sandbox Manager
+<div align="center">
+  <img src="src-tauri/icons/icon.png" alt="Docker Sandbox Manager" width="96">
+  <h1>Docker Sandbox Manager</h1>
+  <p>Gerencie seus projetos Docker Compose em um só lugar.</p>
+</div>
 
-Painel local para projetos Docker Compose, construído com Tauri, React e TypeScript.
+O Docker Sandbox Manager é um aplicativo desktop para acompanhar projetos, serviços, containers, portas e recursos Docker. Escolha um workspace, encontre o que precisa e execute ações sem sair do painel.
 
-Em telas maiores, a coluna esquerda reúne o dashboard (projetos, containers, serviços e portas) e a seleção de diretório; a coluna direita reúne os projetos e seus containers. Em telas menores, as colunas se empilham.
+## Navegação
 
-Use **Recolher** ou **Expandir** no cabeçalho de cada projeto para ocultar ou mostrar seus serviços, sem perder a seleção nem interromper o monitoramento de status. O status e as ações do projeto continuam visíveis. Concluir uma inicialização expande o projeto automaticamente, mas não abre logs.
+- [Comece a usar](#comece-a-usar)
+- [O que você pode fazer](#o-que-você-pode-fazer)
+- [Como funcionam as ações](#como-funcionam-as-ações)
+- [Requisitos e observações](#requisitos-e-observações)
+- [Desenvolvimento](#desenvolvimento)
 
-## Serviços e portas
+## Comece a usar
 
-Selecione os serviços dentro de um projeto para **Iniciar selecionados** ou **Parar selecionados**. Cada serviço também possui uma ação individual, inclusive serviços sem portas ou ainda não iniciados. Quando há réplicas, a ação afeta todos os containers daquele serviço.
+Você precisa ter o Docker instalado, o daemon acessível e o plugin Docker Compose v2 disponível no terminal como `docker compose`.
 
-A inicialização da seleção usa `docker compose up -d --no-deps`: somente os serviços escolhidos são iniciados, sem iniciar suas dependências automaticamente. A parada da seleção usa `docker compose stop` e mantém os containers para iniciar novamente. As ações do projeto inteiro continuam usando `up -d` e `down` (sem remover volumes).
+1. Abra o Docker Sandbox Manager.
+2. No seletor **Contexto**, escolha o daemon Docker que deseja gerenciar.
+3. Abra o menu da pasta e selecione um diretório pelo seletor nativo, escolha um dos **workspaces recentes** ou informe o caminho manualmente.
+4. Clique em **Varrer diretório**. O app encontra projetos Compose dentro da pasta escolhida.
+5. Expanda um projeto para ver seus serviços e começar a usar as ações.
 
-Os nomes dos serviços e as portas vêm de `docker compose config --format json` e `docker compose ps --all --format json`, sem inferir o serviço pelo número da porta. O estado é atualizado a cada três segundos, após a consulta anterior terminar, e ao concluir uma ação. Durante a execução, os controles ficam bloqueados para evitar operações concorrentes no mesmo projeto.
+Os oito workspaces mais recentes são lembrados localmente após uma varredura bem-sucedida. O app inicia na pasta pessoal do sistema ou, se existir, em `Projetos` dentro dela.
 
-Os indicadores **Iniciando** e **Parando** aparecem somente nos serviços incluídos na ação. Os demais mantêm seus rótulos enquanto aguardam; ações no projeto inteiro indicam progresso em todos os seus serviços.
+## O que você pode fazer
 
-Portas TCP publicadas mostram **Disponível** ou **Indisponível** conforme a conexão ao endereço de publicação. Portas de serviços parados mostram **Serviço parado**. UDP não é testado com TCP. O estado de saúde do container é exibido separadamente. Falhas do Compose aparecem no projeto, sem serem tratadas como sucesso ou projeto parado.
+### Acompanhar projetos e serviços
 
-Publicações equivalentes em `0.0.0.0` e `::` (IPv4/IPv6) aparecem em uma única tag, com ambos os endereços no tooltip. Portas, protocolos, destinos e endereços específicos diferentes continuam separados. O dashboard usa a mesma contagem consolidada.
+- Veja o resumo de projetos ativos, containers e portas publicadas.
+- Pesquise por projeto, caminho, serviço ou imagem; filtre serviços ativos, parados ou com falhas.
+- Favorite projetos e organize-os em grupos.
+- Recolha projetos para simplificar a lista sem interromper o monitoramento.
+- Acompanhe status e disponibilidade das portas, atualizados periodicamente.
 
-## Logs sob demanda
+### Controlar o Compose
 
-Clique em **Exibir logs** na linha do serviço para iniciar `docker compose logs --follow --tail 100 --no-color <serviço>`. Iniciar containers não inicia captura de logs. Apenas um painel é mantido aberto; fechar, trocar de serviço, recolher o projeto, varrer novamente ou fechar a janela encerra a captura correspondente, sem parar o container.
+- Inicie ou pare um projeto ou apenas os serviços selecionados.
+- Use **Pull**, **Build** e **Recriar** quando precisar atualizar imagens ou containers.
+- Salve presets de serviços para repetir combinações comuns.
+- Consulte o mapa de dependências e escolha **Iniciar com dependências** quando necessário.
+- Selecione perfis Compose e um arquivo `.env` por projeto. Os valores dos arquivos de ambiente nunca são exibidos no app.
 
-O painel mantém no máximo 100 linhas (até 8.000 caracteres por linha). A captura é somente de leitura e mostra stdout/stderr do serviço escolhido, incluindo suas réplicas. O monitoramento periódico de status e portas continua independente dos logs.
+### Consultar logs e métricas
 
-## Busca, favoritos e grupos
+- Abra logs sob demanda, pesquise linhas e filtre mensagens de erro.
+- Exporte as linhas exibidas para um arquivo `.log` na pasta Downloads.
+- Consulte CPU e memória por container, inclusive em serviços com réplicas, e acompanhe o histórico recente.
+- Configure limites de CPU e memória para destacar valores altos.
+- Copie endereços de portas ou abra portas TCP no navegador quando fizer sentido.
 
-A busca encontra projetos pelo nome/caminho e serviços pelo nome/imagem. Os filtros **Em execução**, **Parados** e **Com falhas** restringem os serviços exibidos, incluindo projetos parcialmente ativos. Falhas incluem containers não saudáveis, containers mortos e erros de consulta ao Compose. O dashboard continua mostrando o workspace completo.
+### Usar ferramentas do serviço
 
-Clique na estrela para favoritar e priorizar um projeto. O campo **Grupo** aceita um nome livre ou um grupo já existente; limpe o campo para remover a associação. Favoritos e grupos são salvos localmente por caminho de projeto e restaurados ao reabrir. Use **Só favoritos** e o seletor de grupo para restringir a listagem.
+- Abra um shell `sh` no container de um serviço ativo.
+- Consulte diagnósticos de configuração, containers órfãos e portas declaradas por mais de um serviço.
+- Inspecione volumes e redes associados ao projeto. A remoção pede confirmação e só é permitida para recursos identificados como pertencentes ao projeto e sem containers associados.
+- Ative notificações desktop para mudanças de saúde dos containers e alertas de recursos.
 
-Alterar qualquer filtro limpa as seleções e fecha os painéis de logs/métricas. Selecionar todos considera somente os projetos ou serviços visíveis; ações no projeto inteiro continuam explicitamente identificadas como **Iniciar projeto** e **Parar projeto**.
+## Como funcionam as ações
 
-## Atalhos e métricas
+| Ação | Comportamento |
+|---|---|
+| **Iniciar selecionados** | Inicia somente os serviços marcados, sem iniciar dependências automaticamente. |
+| **Iniciar com dependências** | Inicia os serviços marcados e suas dependências declaradas no Compose. |
+| **Parar selecionados** | Para os serviços marcados e mantém seus containers para uma próxima inicialização. |
+| **Parar projeto** | Executa `docker compose down`: remove os containers e a rede padrão do projeto, mas não remove volumes. |
+| **Pull / Build / Recriar** | Baixa imagens, constrói imagens ou recria containers, conforme a ação escolhida. |
 
-Cada tag de porta permite **Copiar** o endereço do host. Portas TCP de serviços ativos também permitem **Abrir HTTP** no navegador padrão (HTTPS para destinos 443/8443). Endereços de publicação genéricos usam `localhost`, e IPv6 específico usa colchetes. A abertura é um atalho explícito: portas de bancos ou outros protocolos TCP não passam a oferecer HTTP por causa dele.
+Quando um serviço tem réplicas, as ações por serviço afetam todas as instâncias. As operações em andamento bloqueiam controles do mesmo projeto para evitar comandos concorrentes.
 
-Clique em **Métricas** no serviço para consultar CPU e memória de cada container/réplica em execução. O painel atualiza a cada três segundos e mantém até 120 amostras locais por container para visualizar a tendência recente; cada série é limitada a 100 containers. Os limites de CPU e memória são configuráveis por projeto/contexto/serviço. Ao ultrapassá-los, o painel destaca o valor e, se as notificações estiverem habilitadas, envia um alerta desktop. Fechar ou recolher o projeto remove o painel. Serviços parados informam que não há containers ativos.
+## Requisitos e observações
 
-## Contextos e opções do Compose
-
-O seletor **Contexto Docker** lista os contextos disponíveis no CLI e aplica a seleção às consultas, ações, logs, métricas e recursos. A escolha fica salva localmente. Use **Opções do Compose** em cada projeto para ativar perfis e selecionar um arquivo `.env` localizado na raiz do projeto; a lista inclui arquivos `.env` e `.env.*` regulares, não segue links simbólicos e nunca exibe seus valores. As opções são aplicadas às operações daquele projeto e persistidas localmente.
-
-## Ações, presets e dependências
-
-Além de iniciar/parar, o projeto oferece **Pull**, **Build** e **Recriar**. As ações em serviços selecionados continuam disponíveis; a inicialização padrão não inicia dependências automaticamente. A opção **Iniciar com dependências** e o mapa de dependências usam a relação `depends_on` da configuração Compose.
-
-Presets permitem salvar grupos de serviços com um nome e iniciar ou parar esse conjunto em um clique. Eles são armazenados no navegador local e associados ao caminho do projeto.
-
-## Terminal, diagnóstico e recursos
-
-**Terminal** abre um shell `sh` no container do serviço selecionado, com entrada e saída de texto. Ele usa `docker compose exec -i -T` sem pseudo-terminal, portanto é um shell de linha de comando (não um terminal gráfico interativo); fechar o painel encerra o processo. É necessário que o serviço esteja em execução e tenha `sh`.
-
-**Diagnóstico** verifica problemas comuns da configuração, containers órfãos e portas publicadas declaradas em mais de um serviço. O inventário de **Volumes e redes** mostra recursos Compose identificados pelo projeto. A remoção exige confirmação e só é permitida para recursos marcados com o projeto, sem containers associados; o backend repete a validação antes de remover.
-
-Use **Ativar notificações** para solicitar permissão do sistema. Notificações de estado são enviadas quando um container muda para `unhealthy`/`dead` ou se recupera; o painel de métricas também pode notificar limites de CPU/memória. O sistema operacional pode exigir uma permissão adicional. Os alertas de recursos dependem do painel de métricas estar aberto.
-
-## Pesquisa e exportação de logs
-
-No painel de logs, combine busca textual e **Somente erros** (error, fail/failed/failure, fatal, panic e exception). Os filtros não reiniciam a captura. **Exportar exibidos** salva somente as linhas que passaram pelos filtros em um arquivo `.log` UTF-8 na pasta de Downloads do sistema, com nome do serviço e identificador temporal, sem sobrescrever exportações anteriores. O caminho salvo ou o erro é exibido no próprio painel.
-
-É necessário Docker com o plugin Compose compatível com saída JSON e acesso ao daemon do contexto selecionado. O terminal depende de containers em execução com `sh`; o suporte a contextos, métricas, notificações e recursos também depende das capacidades disponíveis no Docker, no sistema operacional e na compilação Tauri.
+- **Docker e Compose:** o comando `docker` precisa estar disponível e o contexto selecionado deve conseguir acessar o daemon.
+- **Saída JSON:** o app usa recursos do Docker Compose v2, incluindo `docker compose config --format json`.
+- **Terminal:** o container precisa estar ativo e possuir `sh`. O painel oferece entrada e saída de texto, mas não é um terminal gráfico com pseudo-terminal.
+- **Métricas e alertas:** o histórico de CPU e memória é local, limitado a 120 leituras por container e até 100 séries. Os alertas de recursos são enviados enquanto o painel de métricas está aberto.
+- **Notificações:** é necessário ativá-las no app e permitir notificações nas configurações do sistema operacional.
+- **Portas:** a verificação de disponibilidade é feita por TCP; portas UDP não são testadas dessa forma.
+- **Dados locais:** favoritos, grupos, presets, workspaces recentes, opções Compose e histórico de métricas ficam salvos localmente no dispositivo. O Docker Sandbox Manager executa os comandos no contexto Docker selecionado.
 
 ## Desenvolvimento
 
-Execute `npm run tauri dev` para abrir o aplicativo. Após alterações em Rust, reinicie/recompile o aplicativo Tauri; atualizar somente o frontend não registra os novos comandos.
+### Executar o aplicativo
 
-Validação: `npm run build`, `npm test` e `cargo test --manifest-path src-tauri/Cargo.toml --lib`. Os testes Node usam suporte nativo a TypeScript (Node 22.18+ ou 24+).
+Instale as dependências do projeto e inicie o app em modo de desenvolvimento:
 
-Execute `npm run test:browser` para conferir seleção de serviços, ações em lote, atualização dos botões e respostas atrasadas em uma instância isolada do Chromium, com Docker simulado. O navegador padrão é `chromium`; use `CHROME_BIN` para informar outro caminho. Esses testes não iniciam nem param containers reais.
+```bash
+npm install
+npm run tauri dev
+```
 
-## Recommended IDE Setup
+Após alterar código Rust, reinicie ou recompile o app Tauri para registrar os comandos atualizados.
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+### Verificações
+
+```bash
+npm run build
+npm test
+npm run test:browser
+cargo test --manifest-path src-tauri/Cargo.toml --lib
+```
+
+Os testes de navegador usam Chromium e Docker simulado; não iniciam nem param containers reais. Se o navegador não estiver no caminho padrão, informe sua localização com `CHROME_BIN`.
+
+## Tecnologias
+
+Tauri · Rust · React · TypeScript · Docker Compose
