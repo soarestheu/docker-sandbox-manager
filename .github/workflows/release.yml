@@ -26,6 +26,26 @@ jobs:
           node-version: 20
           cache: 'npm'
 
+      - name: Set app version from release tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+
+          const tag = process.env.RELEASE_TAG ?? '';
+          const match = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(tag);
+          if (!match) {
+            throw new Error('Release tag must use the vMAJOR.MINOR.PATCH format: ' + tag);
+          }
+
+          const configPath = 'src-tauri/tauri.conf.json';
+          const config = JSON.parse(readFileSync(configPath, 'utf8'));
+          config.version = match.slice(1).join('.');
+          writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+          console.log('Building app version ' + config.version + ' from tag ' + tag);
+          NODE
+
       - name: Install Rust Stable
         uses: dtolnay/rust-toolchain@stable
 
