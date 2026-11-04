@@ -7,6 +7,25 @@ export interface ProjectPreference {
 }
 
 export type Preferences = Record<string, ProjectPreference>;
+export const IDE_CHOICES = [
+    { id: 'vscode', label: 'Visual Studio Code' },
+    { id: 'webstorm', label: 'WebStorm' },
+    { id: 'phpstorm', label: 'PhpStorm' },
+    { id: 'intellij', label: 'IntelliJ IDEA' },
+] as const;
+export type PreferredIDE = typeof IDE_CHOICES[number]['id'];
+export const DEFAULT_IDE: PreferredIDE = 'webstorm';
+
+function isPreferredIDE(value: string): value is PreferredIDE {
+    return IDE_CHOICES.some(ide => ide.id === value);
+}
+
+export function parsePreferredIDE(raw: string | null): PreferredIDE {
+    if (!raw) return DEFAULT_IDE;
+    if (!isPreferredIDE(raw)) throw new Error('IDE padrão local inválida.');
+    return raw;
+}
+
 export interface ProjectComposeOptions {
     profiles: string[];
     envFile: string | null;

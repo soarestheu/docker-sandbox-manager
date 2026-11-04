@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-    defaultFeatureFlags, filterLogLines, isLogError, parseFeatureFlags, parsePreferences, portAddress,
-    parseRecentWorkspaces, parseServicePresets, projectMatches, rememberWorkspace, servicesForFilter,
-    sortServices,
+    DEFAULT_IDE, IDE_CHOICES, defaultFeatureFlags, filterLogLines, isLogError, parseFeatureFlags,
+    parsePreferredIDE, parsePreferences, portAddress, parseRecentWorkspaces, parseServicePresets,
+    projectMatches, rememberWorkspace, servicesForFilter, sortServices,
 } from '../src/workspace.ts';
 
 const api = { name: 'api', image: 'my-api', state: 'running', health: '', containers: 1, running_containers: 1, ports: [] };
@@ -49,6 +49,13 @@ test('favorites and groups roundtrip and malformed local preferences fail explic
     for (const raw of ['bad json', '[]', 'null', '{"x":{"favorite":"yes","group":1}}']) {
         assert.throws(() => parsePreferences(raw));
     }
+});
+
+test('preferred IDE defaults to WebStorm and rejects unsupported values', () => {
+    assert.equal(parsePreferredIDE(null), DEFAULT_IDE);
+    assert.deepEqual(IDE_CHOICES.map(ide => ide.id), ['vscode', 'webstorm', 'phpstorm', 'intellij']);
+    for (const ide of IDE_CHOICES) assert.equal(parsePreferredIDE(ide.id), ide.id);
+    assert.throws(() => parsePreferredIDE('unknown'));
 });
 
 test('feature controls default safely and reject malformed stored values', () => {

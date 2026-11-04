@@ -103,11 +103,22 @@ button:disabled {
   margin: 0;
 }
 
+.brand-copy {
+  display: grid;
+  gap: 3px;
+}
+
 .brand-name {
   color: #f0f4fb;
   font-size: 14px;
   font-weight: 700;
   letter-spacing: -0.02em;
+}
+
+.app-version {
+  color: var(--text-subtle);
+  font-size: 10px;
+  line-height: 1;
 }
 
 .brand-name span {
@@ -2025,6 +2036,27 @@ input[type="checkbox"] {
 .feature-list {
   overflow-y: auto;
   padding: 7px 20px;
+}
+
+.ide-preference {
+  display: grid;
+  gap: 7px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.ide-preference label {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ide-preference select {
+  width: 100%;
+}
+
+.ide-preference small {
+  color: var(--text-muted);
+  font-size: 10px;
 }
 
 .feature-option {

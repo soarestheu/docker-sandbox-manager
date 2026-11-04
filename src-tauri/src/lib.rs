@@ -31,13 +31,31 @@ fn get_default_projects_dir(app: tauri::AppHandle) -> Result<String, String> {
     Ok(default.to_string_lossy().into_owned())
 }
 
+fn ide_command(ide: &str) -> Result<(&'static str, &'static str), String> {
+    match ide {
+        "vscode" => Ok(("code", "Visual Studio Code")),
+        "webstorm" => Ok(("webstorm", "WebStorm")),
+        "phpstorm" => Ok(("phpstorm", "PhpStorm")),
+        "intellij" => Ok(("idea", "IntelliJ IDEA")),
+        _ => Err(format!("IDE não suportada: {ide}")),
+    }
+}
+
 #[tauri::command]
-fn open_in_webstorm(project_path: String) -> Result<String, String> {
-    Command::new("webstorm")
+fn open_in_ide(project_path: String, ide: String) -> Result<String, String> {
+    let (command, name) = ide_command(&ide)?;
+    Command::new(command)
         .arg(&project_path)
         .spawn()
-        .map_err(|err| format!("Erro ao abrir o WebStorm: {err}"))?;
-    Ok("Projeto aberto no WebStorm!".into())
+        .map_err(|err| format!("Erro ao abrir {name} pelo comando \"{command}\": {err}"))?;
+    Ok(format!("Projeto aberto no {name}!"))
+}
+
+fn should_skip_directory(folder_name: &str) -> bool {
+    matches!(
+        folder_name,
+        ".git" | "node_modules" | "target" | "dist" | "build"
+    )
 }
 
 fn scan_recursive(
@@ -113,12 +131,7 @@ fn scan_recursive(
             continue;
         }
         let folder_name = entry.file_name().to_string_lossy().into_owned();
-        if folder_name.starts_with('.')
-            || matches!(
-                folder_name.as_str(),
-                "node_modules" | "target" | "dist" | "build"
-            )
-        {
+        if should_skip_directory(&folder_name) {
             continue;
         }
         scan_recursive(&entry_path, depth + 1, base_root, docker_context, projects)?;
@@ -235,7 +248,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_default_projects_dir,
             get_docker_contexts,
-            open_in_webstorm,
+            open_in_ide,
             scan_directory,
             get_project_state,
             run_compose_action,
@@ -256,4 +269,26 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ide_command, should_skip_directory};
+
+    #[test]
+    fn scan_hidden_directories_except_git_metadata() {
+        assert!(!should_skip_directory(".devcontainer"));
+        assert!(!should_skip_directory(".config"));
+        assert!(should_skip_directory(".git"));
+        assert!(should_skip_directory("node_modules"));
+    }
+
+    #[test]
+    fn ide_commands_are_allowlisted() {
+        assert_eq!(ide_command("vscode").unwrap().0, "code");
+        assert_eq!(ide_command("webstorm").unwrap().0, "webstorm");
+        assert_eq!(ide_command("phpstorm").unwrap().0, "phpstorm");
+        assert_eq!(ide_command("intellij").unwrap().0, "idea");
+        assert!(ide_command("unknown").is_err());
+    }
 }

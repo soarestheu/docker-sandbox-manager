@@ -52,6 +52,7 @@ function mockTauri() {
             window.testCalls.push({ command, args });
             if (command === 'plugin:event|listen') { listeners.set(++nextId, args); return nextId; }
             if (command === 'plugin:event|unlisten') return;
+            if (command === 'plugin:app|version') return '0.5.2';
             if (command === 'plugin:dialog|open') return '/fixture';
             if (command === 'start_service_logs') {
                 if (window.holdNextLogs) {
@@ -80,6 +81,7 @@ function mockTauri() {
                 networks: [{ name: 'sample_default', resource_type: 'network', driver: 'bridge', in_use: false }],
             };
             if (command === 'open_service_http') return;
+            if (command === 'open_in_ide') return;
             if (command === 'copy_service_address') { window.copiedAddress = args.address; return; }
             if (command === 'export_service_logs') return `/fixture/Downloads/${args.service}.log`;
             if (command === 'get_default_projects_dir') return '/fixture';
@@ -209,6 +211,7 @@ test('service selection, scoped actions, stale polling and project stop in the b
         await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
         await send('Page.navigate', { url });
         await waitFor('document.querySelectorAll(".service-row").length === 3');
+        await waitFor('document.querySelector(".app-version")?.textContent === "v0.5.2"');
         await waitFor('document.querySelector(\'[aria-label="Workspaces recentes"] option[value="/fixture"]\') !== null');
         await evaluate('document.querySelector(".scan-form button").click()');
         await waitFor('window.testCalls.some(call => call.command === "plugin:dialog|open")');
@@ -286,6 +289,8 @@ test('service selection, scoped actions, stale polling and project stop in the b
         assert.equal(await evaluate('window.testCalls.filter(call => call.command === "get_service_metrics").length'), 0);
         await evaluate('document.querySelector(\'.topbar [aria-label="Preferências"]\').click()');
         await waitFor('document.querySelector(\'[role="dialog"]\') !== null');
+        await input('#preferred-ide', 'phpstorm');
+        assert.equal(await evaluate('localStorage.getItem("sandbox-ide")'), 'phpstorm');
         await evaluate('document.querySelector(\'[aria-label="Notificações: desativadas"]\').click()');
         await waitFor('document.querySelector(\'[aria-label="Notificações: ativadas"]\') !== null');
         await evaluate('document.querySelector(\'[aria-label="Notificações: ativadas"]\').click()');
@@ -320,6 +325,12 @@ test('service selection, scoped actions, stale polling and project stop in the b
         assert.equal(await evaluate('document.querySelector(\'[aria-label="Pausa por ociosidade: ativado"]\').getAttribute("aria-checked")'), 'true');
         await evaluate('document.querySelector(\'[aria-label="Pausa por ociosidade: ativado"]\').click()');
         await evaluate('document.querySelector(".feature-modal .button-primary").click()');
+        await evaluate('document.querySelector(\'[aria-label="Mais ações de sample"]\').click()');
+        await evaluate('[...document.querySelectorAll(".project-actions .menu-item")].find(button => button.textContent.includes("Abrir na IDE")).click()');
+        await waitFor('window.testCalls.some(call => call.command === "open_in_ide")');
+        assert.deepEqual(await evaluate('window.testCalls.find(call => call.command === "open_in_ide").args'), {
+            projectPath: '/fixture/sample', ide: 'phpstorm',
+        });
         await evaluate('document.querySelector(\'.topbar [aria-label="Tema claro"]\').click()');
         assert.equal(await evaluate('document.documentElement.dataset.theme'), 'light');
         await evaluate('document.querySelector(\'.topbar [aria-label="Tema escuro"]\').click()');

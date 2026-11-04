@@ -1,5 +1,6 @@
 // src/App.tsx
 import { Fragment, useState, useEffect, useRef } from 'react';
+import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openDirectoryDialog } from '@tauri-apps/plugin-dialog';
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
@@ -11,13 +12,14 @@ import ServiceLogs from './ServiceLogs';
 import ServiceMetrics from './ServiceMetrics';
 import ServiceTerminal from './ServiceTerminal';
 import {
-    defaultFeatureFlags, parseFeatureFlags, parsePreferences, parseProjectComposeOptions, parseRecentWorkspaces,
+    DEFAULT_IDE, IDE_CHOICES, defaultFeatureFlags, parseFeatureFlags, parsePreferredIDE, parsePreferences,
+    parseProjectComposeOptions, parseRecentWorkspaces,
     portAddress, parseServicePresets, projectMatches, rememberWorkspace, servicesForFilter,
     sortServices,
 } from './workspace';
 import type {
-    FeatureFlags, Preferences, ProjectComposeOptions, ProjectComposeOptionsMap, ServicePreset, ServicePresets,
-    ServiceSort, StatusFilter,
+    FeatureFlags, PreferredIDE, Preferences, ProjectComposeOptions, ProjectComposeOptionsMap, ServicePreset,
+    ServicePresets, ServiceSort, StatusFilter,
 } from './workspace';
 
 interface PendingAction {
@@ -58,6 +60,7 @@ function workspaceLabel(path: string): string {
 
 export default function App() {
     const updater = useUpdater();
+    const [appVersion, setAppVersion] = useState('');
     const [searchPath, setSearchPath] = useState('');
     const [projects, setProjects] = useState<Project[]>([]);
     const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
@@ -77,6 +80,7 @@ export default function App() {
     const requestVersions = useRef<Record<string, number>>({});
     const [message, setMessage] = useState('');
     const [preferences, setPreferences] = useState<Preferences>({});
+    const [preferredIDE, setPreferredIDE] = useState<PreferredIDE>(DEFAULT_IDE);
     const [query, setQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
     const [serviceSort, setServiceSort] = useState<ServiceSort>('active');
@@ -102,8 +106,23 @@ export default function App() {
     projectsRef.current = projects;
 
     useEffect(() => {
+        let mounted = true;
+        void getVersion().then(version => {
+            if (mounted) setAppVersion(version);
+        }).catch(err => {
+            if (!mounted) return;
+            setAppVersion('indisponível');
+            setMessage(`Erro ao obter a versão do aplicativo: ${err}`);
+        });
+        return () => {
+            mounted = false;
+        };
+    }, []);
+
+    useEffect(() => {
         try {
             setPreferences(parsePreferences(localStorage.getItem('sandbox-workspace')));
+            setPreferredIDE(parsePreferredIDE(localStorage.getItem('sandbox-ide')));
             setProjectOptions(parseProjectComposeOptions(localStorage.getItem('sandbox-compose-options')));
             setServicePresets(parseServicePresets(localStorage.getItem('sandbox-service-presets')));
             setRecentWorkspaces(parseRecentWorkspaces(localStorage.getItem('sandbox-recent-workspaces')));
@@ -641,11 +660,21 @@ export default function App() {
         }
     };
 
-    const handleOpenWebStorm = async (path: string) => {
+    const updatePreferredIDE = (value: string) => {
         try {
-            await invoke('open_in_webstorm', { projectPath: path });
+            const next = parsePreferredIDE(value);
+            localStorage.setItem('sandbox-ide', next);
+            setPreferredIDE(next);
         } catch (err) {
-            setMessage(`Erro ao abrir IDE: ${err}`);
+            setMessage(`Erro ao salvar a IDE padrão: ${err}`);
+        }
+    };
+
+    const handleOpenIDE = async (path: string) => {
+        try {
+            await invoke('open_in_ide', { projectPath: path, ide: preferredIDE });
+        } catch (err) {
+            setMessage(`Erro ao abrir a IDE selecionada: ${err}`);
         }
     };
 
@@ -691,7 +720,12 @@ export default function App() {
                                 <path d="m7.5 10.8 8.5 4.4 8.5-4.4M16 15.5V25" />
                             </svg>
                         </div>
-                        <p className="brand-name">Docker <span>Sandbox</span></p>
+                        <div className="brand-copy">
+                            <p className="brand-name">Docker <span>Sandbox</span></p>
+                            <small className="app-version" aria-label={`Versão ${appVersion || 'carregando'}`}>
+                                {appVersion ? `v${appVersion}` : 'Versão carregando…'}
+                            </small>
+                        </div>
                     </div>
                     <div className="topbar-tools">
                         {features.directory && (
@@ -979,7 +1013,7 @@ export default function App() {
                                                             }
                                                         }}
                                                     >
-                                                        <button className="menu-item" onClick={() => handleOpenWebStorm(project.path)} title="Abrir projeto no WebStorm"><Icon name="code" />Abrir na IDE</button>
+                                                        <button className="menu-item" onClick={() => handleOpenIDE(project.path)} title={`Abrir projeto no ${IDE_CHOICES.find(ide => ide.id === preferredIDE)?.label ?? 'IDE selecionada'}`}><Icon name="code" />Abrir na IDE</button>
                                                         {(features.imagePull || features.projectBuild || features.containerRecreate || features.diagnostics || features.volumes) && (
                                                             <div className="lifecycle-actions" aria-label={`Ações do projeto ${project.name}`}>
                                                                 {(features.imagePull || features.projectBuild || features.containerRecreate) && (
@@ -1405,12 +1439,24 @@ export default function App() {
                         <header>
                             <div>
                                 <p className="eyebrow">CONTROLE REMOTO</p>
-                                <h2 id="feature-modal-title">Funcionalidades</h2>
-                                <p>Ative ou desative recursos do workspace. As escolhas ficam salvas neste dispositivo.</p>
+                                <h2 id="feature-modal-title">Preferências</h2>
+                                <p>Configure a IDE padrão e os recursos do workspace. As escolhas ficam salvas neste dispositivo.</p>
                             </div>
                             <button className="button button-quiet" onClick={() => setFeatureModalOpen(false)} aria-label="Fechar controles">×</button>
                         </header>
                         <div className="feature-list">
+                            <div className="ide-preference">
+                                <label htmlFor="preferred-ide">IDE padrão para abrir projetos</label>
+                                <select
+                                    id="preferred-ide"
+                                    className="utility-input"
+                                    value={preferredIDE}
+                                    onChange={event => updatePreferredIDE(event.target.value)}
+                                >
+                                    {IDE_CHOICES.map(ide => <option key={ide.id} value={ide.id}>{ide.label}</option>)}
+                                </select>
+                                <small>O comando da IDE selecionada precisa estar disponível no PATH do sistema.</small>
+                            </div>
                             <div className="feature-option">
                                 <span><strong>Notificações</strong><small>Receba alertas quando um serviço falhar ou se recuperar.</small></span>
                                 <div className="feature-control">

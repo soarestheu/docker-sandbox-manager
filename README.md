@@ -21,10 +21,12 @@ Você precisa ter o Docker instalado, o daemon acessível e o plugin Docker Comp
 1. Abra o Docker Sandbox Manager.
 2. No seletor **Contexto**, escolha o daemon Docker que deseja gerenciar.
 3. Abra o menu da pasta e selecione um diretório pelo seletor nativo, escolha um dos **workspaces recentes** ou informe o caminho manualmente.
-4. Clique em **Varrer diretório**. O app encontra projetos Compose dentro da pasta escolhida.
+4. Clique em **Varrer diretório**. O app encontra projetos Compose dentro da pasta escolhida, incluindo pastas ocultas como `.devcontainer` (exceto `.git` e diretórios de build/dependências).
 5. Expanda um projeto para ver seus serviços e começar a usar as ações.
 
 Os oito workspaces mais recentes são lembrados localmente após uma varredura bem-sucedida. O app inicia na pasta pessoal do sistema ou, se existir, em `Projetos` dentro dela.
+
+Em **Preferências**, escolha a IDE padrão para abrir projetos: Visual Studio Code, WebStorm, PhpStorm ou IntelliJ IDEA. O comando de inicialização da IDE precisa estar disponível no `PATH` do sistema.
 
 ## O que você pode fazer
 
