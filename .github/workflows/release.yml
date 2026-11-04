@@ -29,6 +29,7 @@ jobs:
       - name: Set app version from release tag
         env:
           RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
         run: |
           node --input-type=module <<'NODE'
           import { readFileSync, writeFileSync } from 'node:fs';
