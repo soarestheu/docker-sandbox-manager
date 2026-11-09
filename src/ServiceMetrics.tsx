@@ -64,13 +64,14 @@ function chartPoints(samples: MetricSample[], field: 'cpu' | 'memory'): string {
 }
 
 export default function ServiceMetrics({
-    projectPath, dockerContext, profiles, envFile, service, onClose, features, notificationsEnabled,
+    projectPath, dockerContext, profiles, envFile, service, displayName, onClose, features, notificationsEnabled,
 }: {
     projectPath: string;
     dockerContext: string;
     profiles: string[];
     envFile: string | null;
     service: string;
+    displayName: string;
     onClose: () => void;
     features: { containerId: boolean; inspect: boolean; volumes: boolean; state: boolean; metrics: boolean };
     notificationsEnabled: boolean;
@@ -170,7 +171,7 @@ export default function ServiceMetrics({
                                 try {
                                     sendNotification({
                                         title: `${kind === 'cpu' ? 'CPU' : 'Memória'} alta: ${metric.name}`,
-                                        body: `${value} · ${service} · ${projectPath}`,
+                                        body: `${value} · ${displayName} · ${projectPath}`,
                                     });
                                     notifiedAlerts.current.add(alertKey);
                                 } catch (reason) {
@@ -194,14 +195,14 @@ export default function ServiceMetrics({
         void refresh();
         return () => { disposed = true; clearTimeout(timer); };
     }, [
-        projectPath, dockerContext, profiles, envFile, service, revision, features.metrics,
+        projectPath, dockerContext, profiles, envFile, service, displayName, revision, features.metrics,
         thresholds.cpu, thresholds.memory, notificationsEnabled,
     ]);
 
     return (
-        <section className="metrics-panel" aria-label={`Métricas de ${service}`} aria-busy={loading}>
+        <section className="metrics-panel" aria-label={`Métricas de ${displayName}`} aria-busy={loading}>
             <div className="utility-heading">
-                <strong>{features.metrics ? 'Consumo em tempo real' : 'Detalhes dos containers'} · {service}</strong>
+                <strong>{features.metrics ? 'Consumo em tempo real' : 'Detalhes dos containers'} · {displayName}</strong>
                 <div className="utility-actions">
                     <button className="button button-quiet" disabled={loading} onClick={() => setRevision(value => value + 1)}>Atualizar agora</button>
                     <button className="button button-quiet" onClick={onClose}>Fechar métricas</button>

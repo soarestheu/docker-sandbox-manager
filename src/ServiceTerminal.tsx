@@ -9,19 +9,22 @@ interface Props {
     profiles: string[];
     envFile: string | null;
     service: string;
+    displayName: string;
     onClose: () => void;
 }
 
 export default function ServiceTerminal({
-    projectPath, dockerContext, profiles, envFile, service, onClose,
+    projectPath, dockerContext, profiles, envFile, service, displayName, onClose,
 }: Props) {
     const [output, setOutput] = useState('');
     const [command, setCommand] = useState('');
     const [error, setError] = useState('');
     const [status, setStatus] = useState('Conectando…');
     const [sending, setSending] = useState(false);
+    const [autoScroll, setAutoScroll] = useState(true);
     const inputRef = useRef<HTMLInputElement>(null);
     const streamIdRef = useRef('');
+    const outputRef = useRef<HTMLPreElement>(null);
 
     useEffect(() => {
         const streamId = crypto.randomUUID();
@@ -80,6 +83,10 @@ export default function ServiceTerminal({
         };
     }, [projectPath, dockerContext, profiles, envFile, service]);
 
+    useEffect(() => {
+        if (autoScroll && outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
+    }, [autoScroll, output]);
+
     const sendCommand = async (event: FormEvent) => {
         event.preventDefault();
         const value = command.trim();
@@ -101,14 +108,18 @@ export default function ServiceTerminal({
     };
 
     return (
-        <section className="terminal-panel" aria-label={`Terminal de ${service}`}>
+        <section className="terminal-panel" aria-label={`Terminal de ${displayName}`}>
             <div className="utility-heading">
-                <strong>Shell · {service} · {status}</strong>
+                <strong>Shell · {displayName} · {status}</strong>
                 <button className="button button-quiet" onClick={onClose}>Fechar terminal</button>
             </div>
             <p className="dashboard-note">Shell /bin/sh sem pseudo-terminal. Os comandos são executados dentro do container.</p>
             {error && <p className="project-error" role="alert">{error}</p>}
-            <pre className="terminal-output" aria-live="polite">{output || 'Digite um comando para começar.'}</pre>
+            <label className="select-all terminal-auto-scroll">
+                <input type="checkbox" checked={autoScroll} onChange={event => setAutoScroll(event.target.checked)} />
+                Rolagem automática
+            </label>
+            <pre ref={outputRef} className="terminal-output" aria-live="polite">{output || 'Digite um comando para começar.'}</pre>
             <form className="terminal-input-row" onSubmit={sendCommand}>
                 <label htmlFor={`terminal-command-${service}`}>$</label>
                 <input

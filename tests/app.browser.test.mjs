@@ -337,8 +337,16 @@ test('service selection, scoped actions, stale polling and project stop in the b
         assert.equal(await evaluate('document.documentElement.dataset.theme'), 'dark');
         await evaluate('document.querySelector(\'[aria-label="Favoritar projeto sample"]\').click()');
         await input('[aria-label="Grupo de sample"]', 'Trabalho');
+        await input('[aria-label="Apelido de sample"]', 'PPC');
+        await input('[aria-label="Posição do apelido de sample"]', 'suffix');
         assert.equal(await evaluate('JSON.parse(localStorage.getItem("sandbox-workspace"))["/fixture/sample"].favorite'), true);
         assert.equal(await evaluate('JSON.parse(localStorage.getItem("sandbox-workspace"))["/fixture/sample"].group'), 'Trabalho');
+        assert.equal(await evaluate('JSON.parse(localStorage.getItem("sandbox-workspace"))["/fixture/sample"].alias'), 'PPC');
+        assert.equal(await evaluate('JSON.parse(localStorage.getItem("sandbox-workspace"))["/fixture/sample"].aliasPosition'), 'suffix');
+        assert.equal(await evaluate('document.querySelector(".project-title-row h3").textContent'), 'sample · PPC');
+        await input('[aria-label="Buscar projetos ou serviços"]', 'PPC');
+        await waitFor('document.querySelectorAll(".project-card").length === 1');
+        await input('[aria-label="Buscar projetos ou serviços"]', '');
         await input('[aria-label="Filtrar por grupo"]', 'Trabalho');
         await waitFor('document.querySelectorAll(".project-card").length === 1');
         await input('[aria-label="Filtrar por grupo"]', '');

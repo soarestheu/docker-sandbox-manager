@@ -4,9 +4,13 @@ import type { ComposeService, Project, ServicePort } from './docker';
 export interface ProjectPreference {
     favorite: boolean;
     group: string;
+    alias: string;
+    aliasPosition: ProjectAliasPosition;
 }
 
+export type ProjectAliasPosition = 'prefix' | 'suffix';
 export type Preferences = Record<string, ProjectPreference>;
+export type ServiceNames = Record<string, Record<string, string>>;
 export const IDE_CHOICES = [
     { id: 'vscode', label: 'Visual Studio Code' },
     { id: 'webstorm', label: 'WebStorm' },
@@ -122,14 +126,50 @@ export function parsePreferences(raw: string | null): Preferences {
     }
     const preferences: Preferences = {};
     for (const [path, preference] of Object.entries(value)) {
-        if (!preference || typeof preference !== 'object'
-            || !('favorite' in preference) || typeof preference.favorite !== 'boolean'
-            || !('group' in preference) || typeof preference.group !== 'string') {
-            throw new Error('Favoritos ou grupos locais inválidos.');
+        if (!isRecord(preference) || typeof preference.favorite !== 'boolean'
+            || typeof preference.group !== 'string'
+            || (preference.alias !== undefined && typeof preference.alias !== 'string')
+            || (preference.aliasPosition !== undefined
+                && preference.aliasPosition !== 'prefix' && preference.aliasPosition !== 'suffix')) {
+            throw new Error('Apelidos, favoritos ou grupos locais inválidos.');
         }
-        preferences[path] = { favorite: preference.favorite, group: preference.group };
+        preferences[path] = {
+            favorite: preference.favorite,
+            group: preference.group,
+            alias: typeof preference.alias === 'string' ? preference.alias.trim() : '',
+            aliasPosition: preference.aliasPosition === 'suffix' ? 'suffix' : 'prefix',
+        };
     }
     return preferences;
+}
+
+export function projectDisplayName(name: string, alias: string, position: ProjectAliasPosition): string {
+    const trimmedAlias = alias.trim();
+    if (!trimmedAlias) return name;
+    return position === 'prefix' ? `${trimmedAlias} · ${name}` : `${name} · ${trimmedAlias}`;
+}
+
+export function parseServiceNames(raw: string | null): ServiceNames {
+    if (!raw) return {};
+    const value: unknown = JSON.parse(raw);
+    if (!isRecord(value)) throw new Error('Nomes personalizados de serviços inválidos.');
+    const names: ServiceNames = {};
+    for (const [path, services] of Object.entries(value)) {
+        if (!isRecord(services)) {
+            throw new Error('Nomes personalizados de serviços inválidos.');
+        }
+        const serviceNames: Record<string, string> = {};
+        for (const [service, name] of Object.entries(services)) {
+            if (typeof name !== 'string') throw new Error('Nomes personalizados de serviços inválidos.');
+            if (name.trim()) serviceNames[service] = name.trim();
+        }
+        names[path] = serviceNames;
+    }
+    return names;
+}
+
+export function serviceDisplayName(names: ServiceNames, path: string, service: string): string {
+    return names[path]?.[service] || service;
 }
 
 export function parseProjectComposeOptions(raw: string | null): ProjectComposeOptionsMap {
@@ -174,22 +214,41 @@ export function parseServicePresets(raw: string | null): ServicePresets {
 export const serviceFailed = (service: ComposeService) =>
     service.health === 'unhealthy' || service.state === 'dead';
 
-export function projectMatches(project: Project, query: string, status: StatusFilter): boolean {
+export function projectMatches(
+    project: Project,
+    query: string,
+    status: StatusFilter,
+    displayNames: Record<string, string> = {},
+    displayProjectName = project.name,
+): boolean {
     const term = query.trim().toLocaleLowerCase();
-    const matchesText = !term || [project.name, project.path, ...project.services.flatMap(service => [service.name, service.image])]
+    const matchesText = !term || [
+        project.name,
+        displayProjectName,
+        project.path,
+        ...project.services.flatMap(service => [service.name, service.image, displayNames[service.name] ?? '']),
+    ]
         .some(value => value.toLocaleLowerCase().includes(term));
     if (!matchesText) return false;
     if (status === 'failed' && project.error) return true;
-    if (status !== 'all') return servicesForFilter(project, query, status).length > 0
+    if (status !== 'all') return servicesForFilter(project, query, status, displayNames, displayProjectName).length > 0
         || (status === 'stopped' && !project.error && !isProjectActive(project) && project.services.length === 0);
     return true;
 }
 
-export function servicesForFilter(project: Project, query: string, status: StatusFilter): ComposeService[] {
+export function servicesForFilter(
+    project: Project,
+    query: string,
+    status: StatusFilter,
+    displayNames: Record<string, string> = {},
+    displayProjectName = project.name,
+): ComposeService[] {
     const term = query.trim().toLocaleLowerCase();
-    const projectNameMatches = [project.name, project.path].some(value => value.toLocaleLowerCase().includes(term));
+    const projectNameMatches = [project.name, displayProjectName, project.path]
+        .some(value => value.toLocaleLowerCase().includes(term));
     return project.services.filter(service => {
-        if (!projectNameMatches && ![service.name, service.image].some(value => value.toLocaleLowerCase().includes(term))) return false;
+        if (!projectNameMatches && ![service.name, service.image, displayNames[service.name] ?? '']
+            .some(value => value.toLocaleLowerCase().includes(term))) return false;
         if (status === 'active') return isServiceActive(service);
         if (status === 'stopped') return !isServiceActive(service);
         if (status === 'failed') return serviceFailed(service);

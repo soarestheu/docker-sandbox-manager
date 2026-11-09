@@ -13,13 +13,13 @@ import ServiceMetrics from './ServiceMetrics';
 import ServiceTerminal from './ServiceTerminal';
 import {
     DEFAULT_IDE, IDE_CHOICES, defaultFeatureFlags, parseFeatureFlags, parsePreferredIDE, parsePreferences,
-    parseProjectComposeOptions, parseRecentWorkspaces,
-    portAddress, parseServicePresets, projectMatches, rememberWorkspace, servicesForFilter,
-    sortServices,
+    parseProjectComposeOptions, parseRecentWorkspaces, parseServiceNames,
+    portAddress, parseServicePresets, projectDisplayName, projectMatches, rememberWorkspace, serviceDisplayName,
+    servicesForFilter, sortServices,
 } from './workspace';
 import type {
     FeatureFlags, PreferredIDE, Preferences, ProjectComposeOptions, ProjectComposeOptionsMap, ServicePreset,
-    ServicePresets, ServiceSort, StatusFilter,
+    ServiceNames, ServicePresets, ServiceSort, StatusFilter,
 } from './workspace';
 
 interface PendingAction {
@@ -66,6 +66,7 @@ export default function App() {
     const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
     const [loading, setLoading] = useState(false);
     const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+    const [adminStatus, setAdminStatus] = useState<boolean | null>(null);
     const [dockerContexts, setDockerContexts] = useState<DockerContext[]>([]);
     const [dockerContext, setDockerContext] = useState('');
     const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>([]);
@@ -90,6 +91,9 @@ export default function App() {
     const [features, setFeatures] = useState<FeatureFlags>(defaultFeatureFlags);
     const [projectOptions, setProjectOptions] = useState<ProjectComposeOptionsMap>({});
     const [servicePresets, setServicePresets] = useState<ServicePresets>({});
+    const [serviceNames, setServiceNames] = useState<ServiceNames>({});
+    const [editingService, setEditingService] = useState<{ path: string; service: string } | null>(null);
+    const [serviceNameDraft, setServiceNameDraft] = useState('');
     const [presetNames, setPresetNames] = useState<Record<string, string>>({});
     const [selectedPresets, setSelectedPresets] = useState<Record<string, string>>({});
     const [diagnostics, setDiagnostics] = useState<Record<string, ProjectDiagnostic[]>>({});
@@ -100,6 +104,10 @@ export default function App() {
     const [resourceLoading, setResourceLoading] = useState<Record<string, boolean>>({});
     const featureRef = useRef(features);
     featureRef.current = features;
+    const notificationRef = useRef(notificationsEnabled);
+    notificationRef.current = notificationsEnabled;
+    const serviceNamesRef = useRef(serviceNames);
+    serviceNamesRef.current = serviceNames;
     const [featureModalOpen, setFeatureModalOpen] = useState(false);
     const [theme, setTheme] = useState<'dark' | 'light'>('dark');
     const projectsRef = useRef(projects);
@@ -120,8 +128,19 @@ export default function App() {
     }, []);
 
     useEffect(() => {
+        let mounted = true;
+        void invoke<boolean | null>('admin_launch_status').then(status => {
+            if (mounted) setAdminStatus(status);
+        }).catch(err => {
+            if (mounted) setMessage(`Erro ao verificar privilégios administrativos: ${err}`);
+        });
+        return () => { mounted = false; };
+    }, []);
+
+    useEffect(() => {
         try {
             setPreferences(parsePreferences(localStorage.getItem('sandbox-workspace')));
+            setServiceNames(parseServiceNames(localStorage.getItem('sandbox-service-names')));
             setPreferredIDE(parsePreferredIDE(localStorage.getItem('sandbox-ide')));
             setProjectOptions(parseProjectComposeOptions(localStorage.getItem('sandbox-compose-options')));
             setServicePresets(parseServicePresets(localStorage.getItem('sandbox-service-presets')));
@@ -201,7 +220,13 @@ export default function App() {
     }, [query, statusFilter, favoritesOnly, groupFilter]);
 
     const updatePreference = (path: string, update: Partial<Preferences[string]>) => {
-        const next = { ...preferences, [path]: { ...(preferences[path] ?? { favorite: false, group: '' }), ...update } };
+        const next = {
+            ...preferences,
+            [path]: {
+                ...(preferences[path] ?? { favorite: false, group: '', alias: '', aliasPosition: 'prefix' as const }),
+                ...update,
+            },
+        };
         try {
             localStorage.setItem('sandbox-workspace', JSON.stringify(next));
             setPreferences(next);
@@ -210,9 +235,35 @@ export default function App() {
         }
     };
 
+    const saveServiceName = (path: string, service: string, name: string) => {
+        const pathNames = { ...(serviceNames[path] ?? {}) };
+        if (name.trim()) pathNames[service] = name.trim();
+        else delete pathNames[service];
+        const next = { ...serviceNames, [path]: pathNames };
+        if (Object.keys(pathNames).length === 0) delete next[path];
+        try {
+            localStorage.setItem('sandbox-service-names', JSON.stringify(next));
+            setServiceNames(next);
+            setEditingService(null);
+            setServiceNameDraft('');
+        } catch (err) {
+            setMessage(`Erro ao salvar o nome do serviço: ${err}`);
+        }
+    };
+
     const groups = [...new Set(Object.values(preferences).map(preference => preference.group).filter(Boolean))].sort();
     const visibleProjects = projects.filter(project =>
-        projectMatches(project, query, statusFilter)
+        projectMatches(
+            project,
+            query,
+            statusFilter,
+            serviceNames[project.path] ?? {},
+            projectDisplayName(
+                project.name,
+                preferences[project.path]?.alias ?? '',
+                preferences[project.path]?.aliasPosition ?? 'prefix',
+            ),
+        )
         && (!favoritesOnly || preferences[project.path]?.favorite)
         && (!groupFilter || preferences[project.path]?.group === groupFilter),
     ).sort((a, b) => Number(!!preferences[b.path]?.favorite) - Number(!!preferences[a.path]?.favorite));
@@ -239,21 +290,33 @@ export default function App() {
         const previousProject = projectsRef.current.find(project => project.path === path);
         for (const service of state.services) {
             const previous = previousProject?.services.find(item => item.name === service.name);
-            if (!previous || !notificationsEnabled) continue;
+            if (!previous || !notificationRef.current) continue;
             const wasFailed = previous.health === 'unhealthy' || previous.state === 'dead';
             const isFailed = service.health === 'unhealthy' || service.state === 'dead';
-            if (isFailed && !wasFailed) {
+            const failedTransition = isFailed && !wasFailed;
+            const stoppedContainers = service.state !== 'paused'
+                ? Math.max(0, previous.running_containers - service.running_containers)
+                : 0;
+            const becameStopped = isServiceActive(previous)
+                && !isServiceActive(service) && service.state !== 'paused';
+            const displayName = serviceDisplayName(serviceNamesRef.current, path, service.name);
+            if (failedTransition || stoppedContainers > 0 || becameStopped) {
                 try {
                     sendNotification({
-                        title: `Falha no serviço ${service.name}`,
-                        body: `${path} · ${service.health === 'unhealthy' ? 'container não saudável' : 'container encerrado com falha'}`,
+                        title: `${isFailed ? 'Falha no serviço' : 'Container parado'}: ${displayName}`,
+                        body: `${path} · ${isFailed
+                            ? service.health === 'unhealthy' ? 'container não saudável' : 'container encerrado com falha'
+                            : stoppedContainers > 0
+                                ? `${stoppedContainers} container${stoppedContainers === 1 ? '' : 's'} interrompido${stoppedContainers === 1 ? '' : 's'}`
+                                : 'serviço parado'}`,
                     });
                 } catch (err) {
                     setMessage(`Erro ao enviar notificação: ${err}`);
                 }
-            } else if (wasFailed && !isFailed && isServiceActive(service)) {
+            } else if ((wasFailed || service.running_containers > previous.running_containers)
+                && !isFailed && isServiceActive(service)) {
                 try {
-                    sendNotification({ title: `Serviço recuperado: ${service.name}`, body: path });
+                    sendNotification({ title: `Serviço recuperado: ${displayName}`, body: path });
                 } catch (err) {
                     setMessage(`Erro ao enviar notificação: ${err}`);
                 }
@@ -797,6 +860,15 @@ export default function App() {
                             </>
                         )}
                         <span className="topbar-divider" aria-hidden="true" />
+                        {adminStatus === false && (
+                            <button
+                                className="button button-quiet admin-relaunch"
+                                onClick={() => void invoke('reopen_as_admin').catch(err => {
+                                    setMessage(`Erro ao reabrir como administrador: ${err}`);
+                                })}
+                                title="Reabre o aplicativo com privilégios administrativos"
+                            ><Icon name="shield" size={14} />Reabrir como administrador</button>
+                        )}
                         <button
                             className="icon-button"
                             onClick={() => void toggleNotifications()}
@@ -812,7 +884,7 @@ export default function App() {
                             ><Icon name={theme === 'dark' ? 'sun' : 'moon'} /></button>
                         )}
                         <button className="icon-button" onClick={() => setFeatureModalOpen(true)} aria-label="Preferências" title="Preferências">
-                            <Icon name="gear" />
+                            <Icon name="sliders" />
                         </button>
                     </div>
                 </header>
@@ -883,7 +955,19 @@ export default function App() {
                                     data-status={value}
                                     aria-pressed={statusFilter === value}
                                     onClick={() => setStatusFilter(value)}
-                                >{label}<span className="chip-count">{projects.filter(project => projectMatches(project, '', value)).length}</span></button>
+                                >{label}<span className="chip-count">{projects.filter(project =>
+                                        projectMatches(
+                                            project,
+                                            '',
+                                            value,
+                                            serviceNames[project.path] ?? {},
+                                            projectDisplayName(
+                                                project.name,
+                                                preferences[project.path]?.alias ?? '',
+                                                preferences[project.path]?.aliasPosition ?? 'prefix',
+                                            ),
+                                        ),
+                                    ).length}</span></button>
                             ))}
                         </div>
                         <button
@@ -939,7 +1023,16 @@ export default function App() {
                     ) : (
                         <div className="project-list">
                             {visibleProjects.map((project) => {
-                                const visibleServices = sortServices(servicesForFilter(project, query, statusFilter), serviceSort);
+                                const projectServiceNames = serviceNames[project.path] ?? {};
+                                const projectName = projectDisplayName(
+                                    project.name,
+                                    preferences[project.path]?.alias ?? '',
+                                    preferences[project.path]?.aliasPosition ?? 'prefix',
+                                );
+                                const visibleServices = sortServices(
+                                    servicesForFilter(project, query, statusFilter, projectServiceNames, projectName),
+                                    serviceSort,
+                                );
                                 const composeOptions = optionsFor(project.path);
                                 const isExpanded = !!expandedProjects[project.path];
                                 const detailsId = `project-details-${encodeURIComponent(project.path)}`;
@@ -961,12 +1054,12 @@ export default function App() {
                                                     type="checkbox"
                                                     checked={selectedPaths.includes(project.path)}
                                                     onChange={() => toggleSelectProject(project.path)}
-                                                    aria-label={`Selecionar ${project.name}`}
+                                                    aria-label={`Selecionar ${projectName}`}
                                                 />
                                             </label>
                                             <button
                                                 className="icon-button expand-toggle"
-                                                aria-label={`${isExpanded ? 'Recolher' : 'Expandir'} projeto ${project.name}`}
+                                                aria-label={`${isExpanded ? 'Recolher' : 'Expandir'} projeto ${projectName}`}
                                                 aria-expanded={isExpanded}
                                                 aria-controls={detailsId}
                                                 onClick={() => {
@@ -978,10 +1071,10 @@ export default function App() {
                                             ><Icon name="chevron" /></button>
                                             <div className="project-info">
                                                 <div className="project-title-row">
-                                                    <h3 title={project.path}>{project.name}</h3>
+                                                    <h3 title={project.path}>{projectName}</h3>
                                                     <button
                                                         className="favorite-button"
-                                                        aria-label={`Favoritar projeto ${project.name}`}
+                                                        aria-label={`Favoritar projeto ${projectName}`}
                                                         aria-pressed={!!preferences[project.path]?.favorite}
                                                         onClick={() => updatePreference(project.path, { favorite: !preferences[project.path]?.favorite })}
                                                     ><Icon name="star" size={15} /></button>
@@ -1004,7 +1097,7 @@ export default function App() {
                                                     <button className="button button-start" disabled={controlsDisabled} onClick={() => handleDockerAction(project.path, 'up')}><Icon name="play" size={14} />{projectBusyLabel || 'Iniciar'}</button>
                                                 )}
                                                 <details className="popover menu">
-                                                    <summary className="icon-button" aria-label={`Mais ações de ${project.name}`} title="Mais ações"><Icon name="more" /></summary>
+                                                    <summary className="icon-button" aria-label={`Mais ações de ${projectName}`} title="Mais ações"><Icon name="more" /></summary>
                                                     <div
                                                         className="popover-panel"
                                                         onClick={event => {
@@ -1042,6 +1135,31 @@ export default function App() {
                                                             </div>
                                                         )}
                                                         <span className="menu-label">Organização</span>
+                                                        <label className="menu-field">Apelido da pasta
+                                                            <input
+                                                                className="utility-input"
+                                                                aria-label={`Apelido de ${project.name}`}
+                                                                placeholder="Ex.: PPC"
+                                                                maxLength={60}
+                                                                value={preferences[project.path]?.alias ?? ''}
+                                                                onChange={event => updatePreference(project.path, { alias: event.target.value })}
+                                                            />
+                                                        </label>
+                                                        <label className="menu-field">Posição do apelido
+                                                            <select
+                                                                className="utility-input"
+                                                                aria-label={`Posição do apelido de ${project.name}`}
+                                                                value={preferences[project.path]?.aliasPosition ?? 'prefix'}
+                                                                onChange={event => {
+                                                                    if (event.target.value === 'prefix' || event.target.value === 'suffix') {
+                                                                        updatePreference(project.path, { aliasPosition: event.target.value });
+                                                                    }
+                                                                }}
+                                                            >
+                                                                <option value="prefix">Antes do nome</option>
+                                                                <option value="suffix">Depois do nome</option>
+                                                            </select>
+                                                        </label>
                                                         <label className="menu-field">Grupo
                                                             <input className="utility-input" aria-label={`Grupo de ${project.name}`} list="workspace-groups" placeholder="Ex.: Trabalho" maxLength={60} value={preferences[project.path]?.group || ''} onChange={event => updatePreference(project.path, { group: event.target.value })} />
                                                         </label>
@@ -1303,6 +1421,9 @@ export default function App() {
                                                         const hasContainerDetails = features.metrics || features.containerId || features.inspect || features.volumes || features.state;
                                                         const serviceBusyLabel = busy && (busy.services === null || busy.services.includes(service.name))
                                                             ? busy.label : undefined;
+                                                        const displayName = serviceDisplayName(serviceNames, project.path, service.name);
+                                                        const isEditingName = editingService?.path === project.path
+                                                            && editingService.service === service.name;
                                                         return (
                                                             <Fragment key={service.name}>
                                                             <div className={`service-row${selection.includes(service.name) ? ' is-selected' : ''}`} aria-busy={!!serviceBusyLabel}>
@@ -1320,7 +1441,39 @@ export default function App() {
                                                                 />
                                                                 <div className="service-info">
                                                                     <div className="service-title">
-                                                                        <strong>{service.name}</strong>
+                                                                        {isEditingName ? (
+                                                                            <form className="service-name-editor" onSubmit={event => {
+                                                                                event.preventDefault();
+                                                                                saveServiceName(project.path, service.name, serviceNameDraft);
+                                                                            }}>
+                                                                                <input
+                                                                                    className="utility-input"
+                                                                                    aria-label={`Nome exibido para ${service.name}`}
+                                                                                    value={serviceNameDraft}
+                                                                                    autoFocus
+                                                                                    onChange={event => setServiceNameDraft(event.target.value)}
+                                                                                />
+                                                                                <button className="button button-primary" type="submit">Salvar</button>
+                                                                                <button className="button button-quiet" type="button" onClick={() => {
+                                                                                    setEditingService(null);
+                                                                                    setServiceNameDraft('');
+                                                                                }}>Cancelar</button>
+                                                                            </form>
+                                                                        ) : (
+                                                                            <>
+                                                                                <strong>{displayName}</strong>
+                                                                                {displayName !== service.name && <span className="service-original-name">{service.name}</span>}
+                                                                                <button
+                                                                                    className="icon-button service-rename-toggle"
+                                                                                    aria-label={`Editar nome exibido de ${service.name}`}
+                                                                                    title="Editar nome exibido"
+                                                                                    onClick={() => {
+                                                                                        setEditingService({ path: project.path, service: service.name });
+                                                                                        setServiceNameDraft(displayName === service.name ? '' : displayName);
+                                                                                    }}
+                                                                                ><Icon name="edit" size={14} /></button>
+                                                                            </>
+                                                                        )}
                                                                         {features.state && <span className={`status-pill ${active && service.health !== 'unhealthy' ? 'status-online' : 'status-stopped'}`}>
                                                                             <span className="status-dot" />{serviceBusyLabel || serviceStateLabel(service)}
                                                                         </span>}
@@ -1390,6 +1543,7 @@ export default function App() {
                                                                     profiles={composeOptions.profiles}
                                                                     envFile={composeOptions.envFile}
                                                                     service={service.name}
+                                                                    displayName={displayName}
                                                                     onClose={() => setActiveLogPanel(null)}
                                                                     semanticErrors={features.semanticErrors}
                                                                 />
@@ -1401,6 +1555,7 @@ export default function App() {
                                                                     profiles={composeOptions.profiles}
                                                                     envFile={composeOptions.envFile}
                                                                     service={service.name}
+                                                                    displayName={displayName}
                                                                     onClose={() => setActiveTerminalPanel(null)}
                                                                 />
                                                             )}
@@ -1411,6 +1566,7 @@ export default function App() {
                                                                     profiles={composeOptions.profiles}
                                                                     envFile={composeOptions.envFile}
                                                                     service={service.name}
+                                                                    displayName={displayName}
                                                                     onClose={() => setActiveMetrics(null)}
                                                                     features={features}
                                                                     notificationsEnabled={notificationsEnabled}
@@ -1458,7 +1614,7 @@ export default function App() {
                                 <small>O comando da IDE selecionada precisa estar disponível no PATH do sistema.</small>
                             </div>
                             <div className="feature-option">
-                                <span><strong>Notificações</strong><small>Receba alertas quando um serviço falhar ou se recuperar.</small></span>
+                                <span><strong>Notificações</strong><small>Receba alertas quando containers pararem, falharem ou se recuperarem.</small></span>
                                 <div className="feature-control">
                                     <span className={`feature-status${notificationsEnabled ? ' is-enabled' : ''}`}>
                                         {notificationsEnabled ? 'Ativado' : 'Desativado'}

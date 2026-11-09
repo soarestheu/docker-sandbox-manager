@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { filterLogLines, isLogError } from './workspace';
@@ -9,12 +9,13 @@ interface Props {
     profiles: string[];
     envFile: string | null;
     service: string;
+    displayName: string;
     onClose: () => void;
     semanticErrors: boolean;
 }
 
 export default function ServiceLogs({
-    projectPath, dockerContext, profiles, envFile, service, onClose, semanticErrors,
+    projectPath, dockerContext, profiles, envFile, service, displayName, onClose, semanticErrors,
 }: Props) {
     const [lines, setLines] = useState<string[]>([]);
     const [error, setError] = useState('');
@@ -23,6 +24,8 @@ export default function ServiceLogs({
     const [errorsOnly, setErrorsOnly] = useState(false);
     const [exporting, setExporting] = useState(false);
     const [exportMessage, setExportMessage] = useState('');
+    const [autoScroll, setAutoScroll] = useState(true);
+    const outputRef = useRef<HTMLDivElement>(null);
     const visibleLines = filterLogLines(lines, query, semanticErrors && errorsOnly);
 
     const exportLogs = async () => {
@@ -87,10 +90,14 @@ export default function ServiceLogs({
         };
     }, [projectPath, dockerContext, profiles, envFile, service]);
 
+    useEffect(() => {
+        if (autoScroll && outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
+    }, [autoScroll, lines, visibleLines.length]);
+
     return (
-        <section className="log-panel" aria-label={`Logs de ${service}`}>
+        <section className="log-panel" aria-label={`Logs de ${displayName}`}>
             <div className="log-header">
-                <div><span>{service}</span><span>· {status}</span></div>
+                <div><span>{displayName}</span><span>· {status}</span></div>
                 <div>
                     <button className="button button-log-clear" onClick={() => setLines([])}>Limpar logs</button>
                     <button className="button button-log-clear" onClick={onClose}>Fechar logs</button>
@@ -102,6 +109,10 @@ export default function ServiceLogs({
                     <input type="checkbox" checked={errorsOnly} onChange={event => setErrorsOnly(event.target.checked)} />
                     Somente erros (semântico)
                 </label>}
+                <label className="select-all">
+                    <input type="checkbox" checked={autoScroll} onChange={event => setAutoScroll(event.target.checked)} />
+                    Rolagem automática
+                </label>
                 <button className="button button-quiet" disabled={exporting || visibleLines.length === 0} onClick={exportLogs}>
                     {exporting ? 'Exportando…' : 'Exportar exibidos'}
                 </button>
@@ -109,7 +120,7 @@ export default function ServiceLogs({
             </div>
             {exportMessage && <p className="utility-feedback" role="status">{exportMessage}</p>}
             {error && <div className="project-error" role="alert">{error}</div>}
-            <div className="log-output">
+            <div className="log-output" ref={outputRef}>
                 {visibleLines.length === 0 ? (
                     <p className="log-empty">{lines.length ? 'Nenhuma linha corresponde aos filtros.' : 'Nenhum log recebido deste serviço.'}</p>
                 ) : visibleLines.map((line, index) => (

@@ -21,6 +21,9 @@ const paths = {
     code: <path d="m8 7-5 5 5 5M16 7l5 5-5 5" />,
     close: <path d="M6 6l12 12M18 6 6 18" />,
     alert: <><path d="M12 4 2.5 20h19Z" /><path d="M12 10v4M12 17.5v.1" /></>,
+    edit: <><path d="m15 5 4 4M4 20l4-.8L19 8a2.1 2.1 0 0 0-3-3L5 16Z" /><path d="M13.5 6.5 17.5 10.5" /></>,
+    sliders: <><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h9M17 18h3" /><circle cx="15" cy="6" r="2" /><circle cx="9" cy="12" r="2" /><circle cx="15" cy="18" r="2" /></>,
+    shield: <><path d="M12 3 20 6v5c0 5-3.4 8.3-8 10-4.6-1.7-8-5-8-10V6Z" /><path d="m9 12 2 2 4-4" /></>,
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof paths;

@@ -535,6 +535,42 @@ details[open] > summary.icon-button {
   font-size: 13px;
 }
 
+.service-original-name {
+  color: var(--text-subtle);
+  font-size: 10px;
+}
+
+.service-rename-toggle {
+  width: 25px;
+  height: 25px;
+}
+
+.service-name-editor {
+  display: flex;
+  flex: 1 1 100%;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.service-name-editor .utility-input {
+  flex: 1 1 150px;
+  max-width: 260px;
+}
+
+.service-name-editor .button {
+  min-height: 28px;
+  padding: 5px 9px;
+}
+
+.terminal-auto-scroll {
+  align-self: flex-start;
+}
+
+.admin-relaunch {
+  white-space: nowrap;
+}
+
 .service-image {
   display: inline;
   margin: 0;

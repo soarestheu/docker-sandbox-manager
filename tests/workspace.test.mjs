@@ -3,7 +3,8 @@ import test from 'node:test';
 import {
     DEFAULT_IDE, IDE_CHOICES, defaultFeatureFlags, filterLogLines, isLogError, parseFeatureFlags,
     parsePreferredIDE, parsePreferences, portAddress, parseRecentWorkspaces, parseServicePresets,
-    projectMatches, rememberWorkspace, servicesForFilter, sortServices,
+    parseServiceNames, projectDisplayName, projectMatches, rememberWorkspace, serviceDisplayName, servicesForFilter,
+    sortServices,
 } from '../src/workspace.ts';
 
 const api = { name: 'api', image: 'my-api', state: 'running', health: '', containers: 1, running_containers: 1, ports: [] };
@@ -44,10 +45,50 @@ test('services are sorted active-first by default, with name and state alternati
 
 test('favorites and groups roundtrip and malformed local preferences fail explicitly', () => {
     const preferences = { '/projects/sample': { favorite: true, group: 'Trabalho' } };
-    assert.deepEqual(parsePreferences(JSON.stringify(preferences)), preferences);
+    assert.deepEqual(parsePreferences(JSON.stringify(preferences)), {
+        '/projects/sample': { ...preferences['/projects/sample'], alias: '', aliasPosition: 'prefix' },
+    });
+    assert.deepEqual(parsePreferences(JSON.stringify({
+        '/projects/sample': { favorite: false, group: '', alias: ' PPC ', aliasPosition: 'suffix' },
+    })), {
+        '/projects/sample': { favorite: false, group: '', alias: 'PPC', aliasPosition: 'suffix' },
+    });
     assert.deepEqual(parsePreferences(null), {});
     for (const raw of ['bad json', '[]', 'null', '{"x":{"favorite":"yes","group":1}}']) {
         assert.throws(() => parsePreferences(raw));
+    }
+    assert.throws(() => parsePreferences('{"x":{"favorite":false,"group":"","alias":1}}'));
+    assert.throws(() => parsePreferences('{"x":{"favorite":false,"group":"","aliasPosition":"middle"}}'));
+});
+
+test('folder aliases display before or after a project name and match project search', () => {
+    assert.equal(projectDisplayName('psp', 'PPC', 'prefix'), 'PPC · psp');
+    assert.equal(projectDisplayName('psp', 'PPC', 'suffix'), 'psp · PPC');
+    assert.equal(projectDisplayName('psp', '   ', 'prefix'), 'psp');
+    const aliasName = projectDisplayName('sample', 'PPC', 'prefix');
+    assert.equal(projectMatches(project, 'ppc', 'all', {}, aliasName), true);
+    assert.deepEqual(servicesForFilter(project, 'ppc', 'all', {}, aliasName).map(service => service.name), [
+        'api', 'db', 'worker',
+    ]);
+});
+
+test('custom service display names persist and are searchable without changing Docker service keys', () => {
+    const names = { '/projects/sample': { api: 'Fênix - API', front: 'Fênix - Frontend' } };
+    assert.deepEqual(parseServiceNames(JSON.stringify(names)), names);
+    assert.deepEqual(parseServiceNames(null), {});
+    assert.equal(serviceDisplayName(names, '/projects/sample', 'api'), 'Fênix - API');
+    assert.equal(serviceDisplayName(names, '/projects/sample', 'db'), 'db');
+    const namedProject = {
+        ...project,
+        services: [...project.services, { ...api, name: 'front' }],
+    };
+    assert.equal(projectMatches(namedProject, 'fênix - api', 'all', names['/projects/sample']), true);
+    assert.deepEqual(
+        servicesForFilter(namedProject, 'fênix - frontend', 'all', names['/projects/sample']).map(service => service.name),
+        ['front'],
+    );
+    for (const raw of ['bad json', '[]', '{"x":[]} ', '{"x":{"api":1}}']) {
+        assert.throws(() => parseServiceNames(raw));
     }
 });
 

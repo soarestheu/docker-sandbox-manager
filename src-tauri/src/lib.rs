@@ -8,6 +8,20 @@ use std::path::Path;
 use std::process::Command;
 use tauri::Manager;
 
+#[cfg(target_os = "windows")]
+#[link(name = "shell32")]
+unsafe extern "system" {
+    fn IsUserAnAdmin() -> i32;
+    fn ShellExecuteW(
+        window: *mut std::ffi::c_void,
+        operation: *const u16,
+        file: *const u16,
+        parameters: *const u16,
+        directory: *const u16,
+        show_command: i32,
+    ) -> isize;
+}
+
 #[derive(serde::Serialize)]
 struct ProjectInfo {
     name: String,
@@ -49,6 +63,87 @@ fn open_in_ide(project_path: String, ide: String) -> Result<String, String> {
         .spawn()
         .map_err(|err| format!("Erro ao abrir {name} pelo comando \"{command}\": {err}"))?;
     Ok(format!("Projeto aberto no {name}!"))
+}
+
+#[tauri::command]
+fn admin_launch_status() -> Option<bool> {
+    #[cfg(target_os = "linux")]
+    {
+        Some(unsafe { libc::geteuid() == 0 })
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Some(unsafe { IsUserAnAdmin() != 0 })
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    {
+        None
+    }
+}
+
+#[tauri::command]
+fn reopen_as_admin() -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let executable = std::env::current_exe()
+            .map_err(|err| format!("Erro ao localizar o aplicativo: {err}"))?;
+        let mut errors = Vec::new();
+        for (terminal, option) in [
+            ("x-terminal-emulator", "-e"),
+            ("gnome-terminal", "--"),
+            ("konsole", "-e"),
+            ("xterm", "-e"),
+        ] {
+            match Command::new(terminal)
+                .arg(option)
+                .arg("sudo")
+                .arg("--")
+                .arg(&executable)
+                .spawn()
+            {
+                Ok(_) => return Ok(()),
+                Err(err) => errors.push(format!("{terminal}: {err}")),
+            }
+        }
+        Err(format!(
+            "Não foi possível abrir um terminal para executar o aplicativo com sudo. Instale um terminal compatível (x-terminal-emulator, gnome-terminal, konsole ou xterm). {}",
+            errors.join("; ")
+        ))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::ffi::OsStrExt;
+
+        let executable = std::env::current_exe()
+            .map_err(|err| format!("Erro ao localizar o aplicativo: {err}"))?;
+        let executable_wide: Vec<u16> = executable
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let runas_wide: Vec<u16> = "runas".encode_utf16().chain(std::iter::once(0)).collect();
+        let result = unsafe {
+            ShellExecuteW(
+                std::ptr::null_mut(),
+                runas_wide.as_ptr(),
+                executable_wide.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                1,
+            )
+        };
+        if result > 32 {
+            Ok(())
+        } else {
+            Err(format!(
+                "O Windows não conseguiu abrir o aplicativo como administrador (código {result})."
+            ))
+        }
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    {
+        Err("A reabertura como administrador não está disponível nesta plataforma.".into())
+    }
 }
 
 fn should_skip_directory(folder_name: &str) -> bool {
@@ -249,6 +344,8 @@ pub fn run() {
             get_default_projects_dir,
             get_docker_contexts,
             open_in_ide,
+            admin_launch_status,
+            reopen_as_admin,
             scan_directory,
             get_project_state,
             run_compose_action,
