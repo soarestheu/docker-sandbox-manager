@@ -3,7 +3,7 @@ import { Fragment, useState, useEffect, useRef } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openDirectoryDialog } from '@tauri-apps/plugin-dialog';
-import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
+import { isPermissionGranted, requestPermission } from '@tauri-apps/plugin-notification';
 import { displayPorts, isProjectActive, isServiceActive, portStateLabel, serviceStateLabel } from './docker';
 import type { Project, ProjectState } from './docker';
 import Icon from './Icon';
@@ -301,25 +301,20 @@ export default function App() {
                 && !isServiceActive(service) && service.state !== 'paused';
             const displayName = serviceDisplayName(serviceNamesRef.current, path, service.name);
             if (failedTransition || stoppedContainers > 0 || becameStopped) {
-                try {
-                    sendNotification({
-                        title: `${isFailed ? 'Falha no serviço' : 'Container parado'}: ${displayName}`,
-                        body: `${path} · ${isFailed
-                            ? service.health === 'unhealthy' ? 'container não saudável' : 'container encerrado com falha'
-                            : stoppedContainers > 0
-                                ? `${stoppedContainers} container${stoppedContainers === 1 ? '' : 's'} interrompido${stoppedContainers === 1 ? '' : 's'}`
-                                : 'serviço parado'}`,
-                    });
-                } catch (err) {
-                    setMessage(`Erro ao enviar notificação: ${err}`);
-                }
+                void invoke('send_state_notification', {
+                    title: `${isFailed ? 'Falha no serviço' : 'Container parado'}: ${displayName}`,
+                    body: `${path} · ${isFailed
+                        ? service.health === 'unhealthy' ? 'container não saudável' : 'container encerrado com falha'
+                        : stoppedContainers > 0
+                            ? `${stoppedContainers} container${stoppedContainers === 1 ? '' : 's'} interrompido${stoppedContainers === 1 ? '' : 's'}`
+                            : 'serviço parado'}`,
+                }).catch(err => setMessage(`Erro ao enviar notificação: ${err}`));
             } else if ((wasFailed || service.running_containers > previous.running_containers)
                 && !isFailed && isServiceActive(service)) {
-                try {
-                    sendNotification({ title: `Serviço recuperado: ${displayName}`, body: path });
-                } catch (err) {
-                    setMessage(`Erro ao enviar notificação: ${err}`);
-                }
+                void invoke('send_state_notification', {
+                    title: `Serviço recuperado: ${displayName}`,
+                    body: path,
+                }).catch(err => setMessage(`Erro ao enviar notificação: ${err}`));
             }
         }
         setProjects(prev => prev.map(project =>
@@ -349,7 +344,10 @@ export default function App() {
             }
             localStorage.setItem('sandbox-notifications', 'true');
             setNotificationsEnabled(true);
-            sendNotification({ title: 'Docker Sandbox Manager', body: 'Notificações de estado ativadas.' });
+            void invoke('send_state_notification', {
+                title: 'Docker Sandbox Manager',
+                body: 'Notificações de estado ativadas.',
+            }).catch(err => setMessage(`Erro ao enviar notificação: ${err}`));
         } catch (err) {
             setMessage(`Erro ao ativar notificações: ${err}`);
         }
@@ -464,13 +462,31 @@ export default function App() {
                     setDockerContext(context);
                 }
                 const defaultPath: string = await invoke('get_default_projects_dir');
-                if (!disposed) setSearchPath(defaultPath);
-                const result: Project[] = await invoke('scan_directory', {
-                    basePath: defaultPath, dockerContext: context,
-                });
+                let initialPath = defaultPath;
+                try {
+                    initialPath = parseRecentWorkspaces(
+                        localStorage.getItem('sandbox-recent-workspaces'),
+                    )[0] ?? defaultPath;
+                } catch (err) {
+                    setMessage(`Erro ao carregar o histórico de workspaces: ${err}`);
+                }
+                let result: Project[];
+                try {
+                    result = await invoke('scan_directory', {
+                        basePath: initialPath, dockerContext: context,
+                    });
+                } catch (err) {
+                    if (initialPath === defaultPath) throw err;
+                    setMessage(`Erro ao abrir o workspace recente: ${err}. Carregando o diretório padrão.`);
+                    initialPath = defaultPath;
+                    result = await invoke('scan_directory', {
+                        basePath: defaultPath, dockerContext: context,
+                    });
+                }
                 if (!disposed) {
+                    setSearchPath(initialPath);
                     setProjects(result);
-                    recordRecentWorkspace(defaultPath);
+                    recordRecentWorkspace(initialPath);
                 }
             } catch (err) {
                 if (!disposed) setMessage(`Erro ao carregar diretório padrão: ${err}`);
@@ -485,6 +501,7 @@ export default function App() {
     const scanWorkspace = async (path: string, context = dockerContext) => {
         if (!path) return;
         setSearchPath(path);
+        recordRecentWorkspace(path);
         setLoading(true);
         setMessage('');
         try {
@@ -492,7 +509,6 @@ export default function App() {
                 basePath: path, dockerContext: context,
             });
             setProjects(result);
-            recordRecentWorkspace(path);
             setSelectedPaths([]);
             setSelectedServices({});
             setActiveLogPanel(null);
@@ -837,7 +853,7 @@ export default function App() {
                                                 <select
                                                     className="utility-input"
                                                     aria-label="Workspaces recentes"
-                                                    value=""
+                                                    value={recentWorkspaces.includes(searchPath) ? searchPath : ''}
                                                     disabled={loading || hasBusyProjects}
                                                     onChange={event => {
                                                         if (event.target.value) void scanWorkspace(event.target.value);
@@ -863,9 +879,14 @@ export default function App() {
                         {adminStatus === false && (
                             <button
                                 className="button button-quiet admin-relaunch"
-                                onClick={() => void invoke('reopen_as_admin').catch(err => {
-                                    setMessage(`Erro ao reabrir como administrador: ${err}`);
-                                })}
+                                onClick={() => {
+                                    void invoke('reopen_as_admin')
+                                        .then(async () => {
+                                            const { exit } = await import('@tauri-apps/plugin-process');
+                                            await exit(0);
+                                        })
+                                        .catch(err => setMessage(`Erro ao reabrir como administrador: ${err}`));
+                                }}
                                 title="Reabre o aplicativo com privilégios administrativos"
                             ><Icon name="shield" size={14} />Reabrir como administrador</button>
                         )}

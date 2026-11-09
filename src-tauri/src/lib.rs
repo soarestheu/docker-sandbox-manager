@@ -6,7 +6,12 @@ mod utilities;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use tauri::Manager;
+use tauri::{
+    Manager,
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+};
+use tauri_plugin_notification::NotificationExt;
 
 #[cfg(target_os = "windows")]
 #[link(name = "shell32")]
@@ -144,6 +149,20 @@ fn reopen_as_admin() -> Result<(), String> {
     {
         Err("A reabertura como administrador não está disponível nesta plataforma.".into())
     }
+}
+
+#[tauri::command]
+fn send_state_notification(
+    app: tauri::AppHandle,
+    title: String,
+    body: String,
+) -> Result<(), String> {
+    app.notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show()
+        .map_err(|err| format!("Erro ao enviar notificação: {err}"))
 }
 
 fn should_skip_directory(folder_name: &str) -> bool {
@@ -330,8 +349,61 @@ pub fn run() {
         .manage(logs::LogStreams::default())
         .manage(terminals::TerminalStreams::default())
         .manage(utilities::IdleMonitor::default())
-        .on_window_event(|window, event| {
-            if matches!(event, tauri::WindowEvent::Destroyed) {
+        .setup(|app| {
+            let show = MenuItem::with_id(app, "show", "Abrir", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show, &quit])?;
+            let icon = app
+                .default_window_icon()
+                .cloned()
+                .ok_or("Ícone padrão do aplicativo não encontrado")?;
+            TrayIconBuilder::new()
+                .icon(icon)
+                .menu(&menu)
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            if let Err(err) = window.show() {
+                                eprintln!("Erro ao exibir a janela: {err}");
+                            }
+                            if let Err(err) = window.set_focus() {
+                                eprintln!("Erro ao focar a janela: {err}");
+                            }
+                        }
+                    }
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if matches!(
+                        event,
+                        TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        }
+                    ) {
+                        if let Some(window) = tray.app_handle().get_webview_window("main") {
+                            if let Err(err) = window.show() {
+                                eprintln!("Erro ao exibir a janela: {err}");
+                            }
+                            if let Err(err) = window.set_focus() {
+                                eprintln!("Erro ao focar a janela: {err}");
+                            }
+                        }
+                    }
+                })
+                .build(app)?;
+            Ok(())
+        })
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                api.prevent_close();
+                if let Err(err) = window.hide() {
+                    eprintln!("Erro ao minimizar a janela para a bandeja: {err}");
+                }
+            }
+            tauri::WindowEvent::Destroyed => {
                 if let Err(err) = window.state::<logs::LogStreams>().close_all() {
                     eprintln!("Erro ao encerrar logs da janela: {err}");
                 }
@@ -339,6 +411,7 @@ pub fn run() {
                     eprintln!("Erro ao encerrar terminais da janela: {err}");
                 }
             }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             get_default_projects_dir,
@@ -346,6 +419,7 @@ pub fn run() {
             open_in_ide,
             admin_launch_status,
             reopen_as_admin,
+            send_state_notification,
             scan_directory,
             get_project_state,
             run_compose_action,

@@ -9,6 +9,7 @@ import test from 'node:test';
 
 function mockTauri() {
     const clone = value => JSON.parse(JSON.stringify(value));
+    localStorage.setItem('sandbox-recent-workspaces', JSON.stringify(['/fixture']));
     Object.defineProperty(window, 'Notification', {
         configurable: true,
         value: class {
@@ -65,6 +66,7 @@ function mockTauri() {
             if (command === 'start_service_terminal' || command === 'write_service_terminal'
                 || command === 'stop_service_terminal' || command === 'remove_project_resource') return;
             if (command === 'reset_idle_monitor') return;
+            if (command === 'send_state_notification') return;
             if (command === 'get_docker_contexts') return [
                 { name: 'default', current: true },
                 { name: 'staging', current: false },
@@ -84,7 +86,7 @@ function mockTauri() {
             if (command === 'open_in_ide') return;
             if (command === 'copy_service_address') { window.copiedAddress = args.address; return; }
             if (command === 'export_service_logs') return `/fixture/Downloads/${args.service}.log`;
-            if (command === 'get_default_projects_dir') return '/fixture';
+            if (command === 'get_default_projects_dir') return '/fixture/default';
             if (command === 'scan_directory') return [{
                 name: 'sample', path: '/fixture/sample', has_docker: true,
                 error: null, profiles: ['debug'], env_files: ['.env.dev'], ...snapshot(),
@@ -212,6 +214,7 @@ test('service selection, scoped actions, stale polling and project stop in the b
         await send('Page.navigate', { url });
         await waitFor('document.querySelectorAll(".service-row").length === 3');
         await waitFor('document.querySelector(".app-version")?.textContent === "v0.5.2"');
+        assert.equal(await evaluate('window.testCalls.find(call => call.command === "scan_directory").args.basePath'), '/fixture');
         await waitFor('document.querySelector(\'[aria-label="Workspaces recentes"] option[value="/fixture"]\') !== null');
         await evaluate('document.querySelector(".scan-form button").click()');
         await waitFor('window.testCalls.some(call => call.command === "plugin:dialog|open")');
@@ -228,6 +231,9 @@ test('service selection, scoped actions, stale polling and project stop in the b
         await evaluate('document.querySelector(\'.topbar [aria-label="Ativar notificações"]\').click()');
         await waitFor('document.querySelector(\'.topbar [aria-label="Desativar notificações"]\') !== null');
         assert.equal(await evaluate('localStorage.getItem("sandbox-notifications")'), 'true');
+        await evaluate('window.setServiceState("api", "exited")');
+        await waitFor('window.testCalls.some(call => call.command === "send_state_notification" && call.args.title.includes("Container parado"))');
+        await evaluate('window.setServiceState("api", "running")');
         await evaluate('document.querySelector(\'.topbar [aria-label="Desativar notificações"]\').click()');
         await waitFor('document.querySelector(\'.topbar [aria-label="Ativar notificações"]\') !== null');
         assert.equal(await evaluate('localStorage.getItem("sandbox-notifications")'), 'false');
@@ -390,11 +396,11 @@ test('service selection, scoped actions, stale polling and project stop in the b
         });
 
         await evaluate('document.querySelector(\'[aria-label="Selecionar serviço db de sample"]\').click()');
-        await evaluate('document.querySelector(\'[aria-label="Recolher projeto sample"]\').click()');
-        await waitFor('document.querySelector(\'[aria-label="Expandir projeto sample"]\')?.getAttribute("aria-expanded") === "false"');
+        await evaluate('document.querySelector(\'[aria-label="Recolher projeto sample · PPC"]\').click()');
+        await waitFor('document.querySelector(\'[aria-label="Expandir projeto sample · PPC"]\')?.getAttribute("aria-expanded") === "false"');
         assert.equal(await evaluate('document.querySelector(".service-list").getClientRects().length'), 0);
         assert.equal(await evaluate('document.querySelector(".project-actions .button-danger").getClientRects().length > 0'), true);
-        await evaluate('document.querySelector(\'[aria-label="Expandir projeto sample"]\').click()');
+        await evaluate('document.querySelector(\'[aria-label="Expandir projeto sample · PPC"]\').click()');
         await waitFor('document.querySelector(".service-list").getClientRects().length > 0');
         assert.equal(await evaluate('document.querySelector(\'[aria-label="Selecionar serviço db de sample"]\').checked'), true);
         await evaluate('document.querySelector(\'[aria-label="Selecionar serviço db de sample"]\').click()');
@@ -421,10 +427,10 @@ test('service selection, scoped actions, stale polling and project stop in the b
         await waitFor('window.testCalls.filter(call => call.command === "start_service_logs").length === 2');
         assert.equal(await evaluate('window.testCalls.filter(call => call.command === "start_service_logs").at(-1).args.service'), 'api');
         assert.equal(await evaluate('document.querySelectorAll(".log-panel").length'), 1);
-        await evaluate('document.querySelector(\'[aria-label="Recolher projeto sample"]\').click()');
+        await evaluate('document.querySelector(\'[aria-label="Recolher projeto sample · PPC"]\').click()');
         await waitFor('window.testCalls.filter(call => call.command === "stop_service_logs").length === 2');
         assert.equal(await evaluate('document.querySelector(".log-panel")'), null);
-        await evaluate('document.querySelector(\'[aria-label="Expandir projeto sample"]\').click()');
+        await evaluate('document.querySelector(\'[aria-label="Expandir projeto sample · PPC"]\').click()');
         assert.equal(await evaluate('document.querySelector(".log-panel")'), null);
 
         await evaluate('window.holdNextLogs = true; document.querySelector(\'[aria-label="Exibir logs de db de sample"]\').click()');
@@ -508,7 +514,7 @@ test('service selection, scoped actions, stale polling and project stop in the b
         await waitFor('document.querySelectorAll(".project-card").length === 2');
         await evaluate('[...document.querySelectorAll(".chip")].find(chip => chip.textContent.includes("Favoritos")).click()');
         await waitFor('document.querySelectorAll(".project-card").length === 1');
-        assert.equal(await evaluate('document.querySelector(".project-title-row h3").textContent'), 'sample');
+        assert.equal(await evaluate('document.querySelector(".project-title-row h3").textContent'), 'sample · PPC');
         await evaluate('document.querySelector(\'[aria-label="Selecionar projetos visíveis"]\').click()');
         await waitFor('document.querySelector(".selection-bar .button-danger") !== null');
         await evaluate('document.querySelector(".selection-bar .button-danger").click()');
@@ -517,7 +523,7 @@ test('service selection, scoped actions, stale polling and project stop in the b
         assert.equal(await evaluate('window.testCalls.some(call => call.command === "run_compose_action" && call.args.projectPath === "/fixture/archive")'), false);
         await send('Page.reload');
         await waitFor('document.querySelector(\'[aria-label="Grupo de sample"]\')?.value === "Trabalho"');
-        assert.equal(await evaluate('document.querySelector(\'[aria-label="Favoritar projeto sample"]\').getAttribute("aria-pressed")'), 'true');
+        assert.equal(await evaluate('document.querySelector(\'[aria-label="Favoritar projeto sample · PPC"]\').getAttribute("aria-pressed")'), 'true');
     } finally {
         if (socket?.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({ id: 99999, method: 'Browser.close' }));
