@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-    DEFAULT_IDE, IDE_CHOICES, defaultFeatureFlags, filterLogLines, isLogError, parseFeatureFlags,
+    DEFAULT_IDE, IDE_CHOICES, dashboardSelectionKey, defaultFeatureFlags, filterLogLines, isLogError,
+    parseDashboardSelection, parseFeatureFlags,
     parsePreferredIDE, parsePreferences, portAddress, parseRecentWorkspaces, parseServicePresets,
-    parseServiceNames, projectDisplayName, projectMatches, rememberWorkspace, serviceDisplayName, servicesForFilter,
+    parseServiceNames, parseTerminalCommandPresets, projectDisplayName, projectMatches, rememberWorkspace,
+    serviceDisplayName, servicesForFilter, terminalCommandPresetKey,
     sortServices,
 } from '../src/workspace.ts';
 
@@ -119,6 +121,29 @@ test('service presets roundtrip and reject empty or malformed selections', () =>
     assert.deepEqual(parseServicePresets(null), {});
     for (const raw of ['bad json', '[]', '{"x":[{"name":"empty","services":[]}]}']) {
         assert.throws(() => parseServicePresets(raw));
+    }
+});
+
+test('terminal command presets are scoped by context, project and service', () => {
+    const key = terminalCommandPresetKey('default', '/projects/sample', 'api');
+    const presets = { [key]: [{ name: 'Health check', command: 'curl localhost/health' }] };
+    assert.equal(key, '["default","/projects/sample","api"]');
+    assert.deepEqual(parseTerminalCommandPresets(JSON.stringify(presets)), presets);
+    assert.deepEqual(parseTerminalCommandPresets(null), {});
+    for (const raw of ['bad json', '[]', '{"api":[{"name":"","command":"ls"}]}', '{"api":[{"name":"List","command":" "}]}']) {
+        assert.throws(() => parseTerminalCommandPresets(raw));
+    }
+});
+
+test('dashboard service selection is context-scoped, deduplicated and validated', () => {
+    const key = dashboardSelectionKey('default', '/projects/sample');
+    assert.equal(key, '["default","/projects/sample"]');
+    assert.deepEqual(parseDashboardSelection(JSON.stringify({ [key]: ['api', 'db', 'api'] })), {
+        [key]: ['api', 'db'],
+    });
+    assert.deepEqual(parseDashboardSelection(null), {});
+    for (const raw of ['bad json', '[]', '{"x":"api"}', '{"x":[1]}']) {
+        assert.throws(() => parseDashboardSelection(raw));
     }
 });
 

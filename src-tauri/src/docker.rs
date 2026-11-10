@@ -557,6 +557,10 @@ fn action_args(action: &str, services: Option<&[String]>) -> Result<Vec<String>,
         }
         "recreate" => vec!["up".into(), "-d".into(), "--force-recreate".into()],
         "stop" => vec!["stop".into()],
+        "restart" if services.is_some() => vec!["restart".into()],
+        "rm" if services.is_some() => {
+            vec!["rm".into(), "--force".into(), "--stop".into()]
+        }
         "unpause" if services.is_some() => vec!["unpause".into()],
         "down" if services.is_none() => vec!["down".into()],
         _ => return Err("Ação Docker inválida para esta seleção.".into()),
@@ -775,12 +779,22 @@ mod tests {
             ["stop", "api", "worker"]
         );
         assert_eq!(
+            action_args("restart", Some(&services)).unwrap(),
+            ["restart", "api", "worker"]
+        );
+        assert_eq!(
+            action_args("rm", Some(&services)).unwrap(),
+            ["rm", "--force", "--stop", "api", "worker"]
+        );
+        assert_eq!(
             action_args("unpause", Some(&services)).unwrap(),
             ["unpause", "api", "worker"]
         );
         assert!(action_args("up", Some(&[])).is_err());
         assert!(action_args("down", Some(&services)).is_err());
         assert!(action_args("unpause", None).is_err());
+        assert!(action_args("restart", None).is_err());
+        assert!(action_args("rm", None).is_err());
         assert!(action_args("stop", Some(&["--all".into()])).is_err());
         assert_eq!(action_args("up", None).unwrap(), ["up", "-d"]);
         assert_eq!(action_args("down", None).unwrap(), ["down"]);

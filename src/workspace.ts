@@ -35,11 +35,17 @@ export interface ProjectComposeOptions {
     envFile: string | null;
 }
 export type ProjectComposeOptionsMap = Record<string, ProjectComposeOptions>;
+export type DashboardSelection = Record<string, string[]>;
 export interface ServicePreset {
     name: string;
     services: string[];
 }
 export type ServicePresets = Record<string, ServicePreset[]>;
+export interface TerminalCommandPreset {
+    name: string;
+    command: string;
+}
+export type TerminalCommandPresets = Record<string, TerminalCommandPreset[]>;
 export const MAX_RECENT_WORKSPACES = 8;
 export type StatusFilter = 'all' | 'active' | 'stopped' | 'failed';
 
@@ -49,6 +55,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isStringArray(value: unknown): value is string[] {
     return Array.isArray(value) && value.every((item: unknown) => typeof item === 'string');
+}
+
+export function dashboardSelectionKey(context: string, projectPath: string): string {
+    return JSON.stringify([context, projectPath]);
+}
+
+export function terminalCommandPresetKey(context: string, projectPath: string, service: string): string {
+    return JSON.stringify([context, projectPath, service]);
+}
+
+export function parseDashboardSelection(raw: string | null): DashboardSelection {
+    if (!raw) return {};
+    const value: unknown = JSON.parse(raw);
+    if (!isRecord(value)) throw new Error('Seleção do dashboard inválida.');
+    const selection: DashboardSelection = {};
+    for (const [key, services] of Object.entries(value)) {
+        if (!isStringArray(services)) throw new Error('Seleção do dashboard inválida.');
+        selection[key] = [...new Set(services)];
+    }
+    return selection;
 }
 
 export function parseRecentWorkspaces(raw: string | null): string[] {
@@ -206,6 +232,26 @@ export function parseServicePresets(raw: string | null): ServicePresets {
                 throw new Error('Predefinições de serviços inválidas.');
             }
             return { name: entry.name, services: [...entry.services] };
+        });
+    }
+    return presets;
+}
+
+export function parseTerminalCommandPresets(raw: string | null): TerminalCommandPresets {
+    if (!raw) return {};
+    const value: unknown = JSON.parse(raw);
+    if (!isRecord(value)) throw new Error('Predefinições de comandos inválidas.');
+    const presets: TerminalCommandPresets = {};
+    for (const [key, entries] of Object.entries(value)) {
+        if (!key || !Array.isArray(entries)) {
+            throw new Error('Predefinições de comandos inválidas.');
+        }
+        presets[key] = entries.map(entry => {
+            if (!isRecord(entry) || typeof entry.name !== 'string' || !entry.name.trim()
+                || typeof entry.command !== 'string' || !entry.command.trim()) {
+                throw new Error('Predefinições de comandos inválidas.');
+            }
+            return { name: entry.name.trim(), command: entry.command.trim() };
         });
     }
     return presets;

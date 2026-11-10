@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import Icon from './Icon';
+import type { TerminalCommandPreset } from './workspace';
 
 interface Props {
     projectPath: string;
@@ -10,11 +12,15 @@ interface Props {
     envFile: string | null;
     service: string;
     displayName: string;
+    commandPresets: TerminalCommandPreset[];
+    onSaveCommandPreset: (name: string, command: string) => void;
+    onRemoveCommandPreset: (name: string) => void;
     onClose: () => void;
 }
 
 export default function ServiceTerminal({
-    projectPath, dockerContext, profiles, envFile, service, displayName, onClose,
+    projectPath, dockerContext, profiles, envFile, service, displayName, commandPresets,
+    onSaveCommandPreset, onRemoveCommandPreset, onClose,
 }: Props) {
     const [output, setOutput] = useState('');
     const [command, setCommand] = useState('');
@@ -22,6 +28,7 @@ export default function ServiceTerminal({
     const [status, setStatus] = useState('Conectando…');
     const [sending, setSending] = useState(false);
     const [autoScroll, setAutoScroll] = useState(true);
+    const [presetName, setPresetName] = useState('');
     const inputRef = useRef<HTMLInputElement>(null);
     const streamIdRef = useRef('');
     const outputRef = useRef<HTMLPreElement>(null);
@@ -87,9 +94,8 @@ export default function ServiceTerminal({
         if (autoScroll && outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }, [autoScroll, output]);
 
-    const sendCommand = async (event: FormEvent) => {
-        event.preventDefault();
-        const value = command.trim();
+    const runCommand = async (input: string, clearInput = false) => {
+        const value = input.trim();
         if (!value || sending || status !== 'Conectado') return;
         setSending(true);
         setError('');
@@ -98,13 +104,27 @@ export default function ServiceTerminal({
                 streamId: streamIdRef.current,
                 input: `${value}\n`,
             });
-            setCommand('');
+            if (clearInput) setCommand('');
         } catch (reason) {
             setError(String(reason));
         } finally {
             setSending(false);
             inputRef.current?.focus();
         }
+    };
+
+    const sendCommand = (event: FormEvent) => {
+        event.preventDefault();
+        void runCommand(command, true);
+    };
+
+    const saveCommandPreset = (event: FormEvent) => {
+        event.preventDefault();
+        const name = presetName.trim();
+        const value = command.trim();
+        if (!name || !value) return;
+        onSaveCommandPreset(name, value);
+        setPresetName('');
     };
 
     return (
@@ -136,6 +156,52 @@ export default function ServiceTerminal({
                     {sending ? 'Enviando…' : 'Executar'}
                 </button>
             </form>
+            <details className="terminal-presets">
+                <summary>Comandos rápidos ({commandPresets.length})</summary>
+                <div className="terminal-presets-content">
+                    {commandPresets.length > 0 && (
+                        <div className="terminal-preset-list">
+                            {commandPresets.map(preset => (
+                                <div className="terminal-preset-row" key={preset.name}>
+                                    <button
+                                        type="button"
+                                        className="terminal-preset-run"
+                                        aria-label={`Executar comando rápido ${preset.name} no terminal de ${service}`}
+                                        title={preset.command}
+                                        disabled={status !== 'Conectado' || sending}
+                                        onClick={() => void runCommand(preset.command)}
+                                    >
+                                        <strong>{preset.name}</strong>
+                                        <code>{preset.command}</code>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="icon-button"
+                                        aria-label={`Remover comando salvo ${preset.name} do terminal de ${service}`}
+                                        title="Remover comando salvo"
+                                        onClick={() => onRemoveCommandPreset(preset.name)}
+                                    ><Icon name="close" size={14} /></button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    <form className="terminal-preset-form" onSubmit={saveCommandPreset}>
+                        <input
+                            className="utility-input"
+                            aria-label={`Nome do comando salvo para ${service}`}
+                            placeholder="Nome do comando"
+                            value={presetName}
+                            onChange={event => setPresetName(event.target.value)}
+                        />
+                        <button
+                            className="button button-quiet"
+                            type="submit"
+                            disabled={!presetName.trim() || !command.trim()}
+                        >{commandPresets.some(preset => preset.name === presetName.trim()) ? 'Atualizar comando salvo' : 'Salvar comando atual'}</button>
+                    </form>
+                    <p className="dashboard-note">Salva o comando digitado e o associa a este serviço.</p>
+                </div>
+            </details>
         </section>
     );
 }

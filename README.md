@@ -40,7 +40,7 @@ Em **Preferências**, escolha a IDE padrão para abrir projetos: Visual Studio C
 
 ### Controlar o Compose
 
-- Inicie ou pare um projeto ou apenas os serviços selecionados.
+- Inicie, pare ou reinicie serviços individualmente; também é possível iniciar ou parar um projeto ou os serviços selecionados.
 - Use **Pull**, **Build** e **Recriar** quando precisar atualizar imagens ou containers.
 - Salve presets de serviços para repetir combinações comuns.
 - Consulte o mapa de dependências e escolha **Iniciar com dependências** quando necessário.
@@ -51,12 +51,17 @@ Em **Preferências**, escolha a IDE padrão para abrir projetos: Visual Studio C
 - Abra logs sob demanda, pesquise linhas e filtre mensagens de erro.
 - Exporte as linhas exibidas para um arquivo `.log` na pasta Downloads.
 - Consulte CPU e memória por container, inclusive em serviços com réplicas, e acompanhe o histórico recente.
+- Na tela de Projetos, ative a chave **Dashboard** na linha de cada serviço que deseja fixar. Só os serviços fixados recebem consultas de métricas; elas ocorrem em sequência, com intervalo mínimo de 10 segundos entre ciclos, enquanto o Dashboard está visível. Os logs só são iniciados quando solicitados.
+- No Dashboard, reinicie ou remova os containers do serviço, abra logs e use o terminal interativo.
 - Configure limites de CPU e memória para destacar valores altos.
 - Copie endereços de portas ou abra portas TCP no navegador quando fizer sentido.
 
+O Dashboard mantém a seleção por contexto Docker e projeto. A memória agregada é uma soma aproximada dos valores reportados pelo Docker; parar containers libera memória, enquanto pausá-los não.
+
 ### Usar ferramentas do serviço
 
-- Abra um shell `sh` no container de um serviço ativo.
+- Abra um shell `sh` pelo ícone de terminal na linha do serviço em Projetos ou por **Mais ações** no Dashboard.
+- No terminal, expanda **Comandos rápidos** abaixo do campo de comando para salvar, executar ou remover comandos. Eles são guardados por contexto, projeto e serviço.
 - Consulte diagnósticos de configuração, containers órfãos e portas declaradas por mais de um serviço.
 - Inspecione volumes e redes associados ao projeto. A remoção pede confirmação e só é permitida para recursos identificados como pertencentes ao projeto e sem containers associados.
 - Ative notificações desktop para mudanças de saúde dos containers e alertas de recursos.
@@ -68,6 +73,8 @@ Em **Preferências**, escolha a IDE padrão para abrir projetos: Visual Studio C
 | **Iniciar selecionados** | Inicia somente os serviços marcados, sem iniciar dependências automaticamente. |
 | **Iniciar com dependências** | Inicia os serviços marcados e suas dependências declaradas no Compose. |
 | **Parar selecionados** | Para os serviços marcados e mantém seus containers para uma próxima inicialização. |
+| **Reiniciar serviço** | Reinicia os containers existentes do serviço, sem recriá-los. |
+| **Remover containers** | Para e remove os containers do serviço; volumes não são removidos. |
 | **Parar projeto** | Executa `docker compose down`: remove os containers e a rede padrão do projeto, mas não remove volumes. |
 | **Pull / Build / Recriar** | Baixa imagens, constrói imagens ou recria containers, conforme a ação escolhida. |
 
@@ -77,11 +84,11 @@ Quando um serviço tem réplicas, as ações por serviço afetam todas as instâ
 
 - **Docker e Compose:** o comando `docker` precisa estar disponível e o contexto selecionado deve conseguir acessar o daemon.
 - **Saída JSON:** o app usa recursos do Docker Compose v2, incluindo `docker compose config --format json`.
-- **Terminal:** o container precisa estar ativo e possuir `sh`. O painel oferece entrada e saída de texto, mas não é um terminal gráfico com pseudo-terminal.
+- **Terminal:** o container precisa estar ativo e possuir `sh`. O painel oferece entrada e saída de texto, mas não é um terminal gráfico com pseudo-terminal. Os comandos rápidos são salvos localmente por contexto Docker, projeto e serviço.
 - **Métricas e alertas:** o histórico de CPU e memória é local, limitado a 120 leituras por container e até 100 séries. Os alertas de recursos são enviados enquanto o painel de métricas está aberto.
 - **Notificações:** é necessário ativá-las no app e permitir notificações nas configurações do sistema operacional.
 - **Portas:** a verificação de disponibilidade é feita por TCP; portas UDP não são testadas dessa forma.
-- **Dados locais:** favoritos, grupos, presets, workspaces recentes, opções Compose e histórico de métricas ficam salvos localmente no dispositivo. O Docker Sandbox Manager executa os comandos no contexto Docker selecionado.
+- **Dados locais:** favoritos, grupos, presets de serviços e comandos, serviços fixados no Dashboard, workspaces recentes, opções Compose e histórico de métricas ficam salvos localmente no dispositivo. O Docker Sandbox Manager executa os comandos no contexto Docker selecionado.
 
 ## Desenvolvimento
 

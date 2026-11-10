@@ -8,18 +8,21 @@ import { displayPorts, isProjectActive, isServiceActive, portStateLabel, service
 import type { Project, ProjectState } from './docker';
 import Icon from './Icon';
 import { useUpdater } from './useUpdater';
+import Dashboard from './Dashboard';
 import ServiceLogs from './ServiceLogs';
 import ServiceMetrics from './ServiceMetrics';
 import ServiceTerminal from './ServiceTerminal';
 import {
-    DEFAULT_IDE, IDE_CHOICES, defaultFeatureFlags, parseFeatureFlags, parsePreferredIDE, parsePreferences,
+    DEFAULT_IDE, IDE_CHOICES, dashboardSelectionKey, defaultFeatureFlags, parseDashboardSelection,
+    parseFeatureFlags, parsePreferredIDE, parsePreferences,
     parseProjectComposeOptions, parseRecentWorkspaces, parseServiceNames,
-    portAddress, parseServicePresets, projectDisplayName, projectMatches, rememberWorkspace, serviceDisplayName,
+    parseTerminalCommandPresets, portAddress, parseServicePresets, projectDisplayName, projectMatches,
+    rememberWorkspace, serviceDisplayName, terminalCommandPresetKey,
     servicesForFilter, sortServices,
 } from './workspace';
 import type {
-    FeatureFlags, PreferredIDE, Preferences, ProjectComposeOptions, ProjectComposeOptionsMap, ServicePreset,
-    ServiceNames, ServicePresets, ServiceSort, StatusFilter,
+    DashboardSelection, FeatureFlags, PreferredIDE, Preferences, ProjectComposeOptions, ProjectComposeOptionsMap, ServicePreset,
+    ServiceNames, ServicePresets, ServiceSort, StatusFilter, TerminalCommandPresets,
 } from './workspace';
 
 interface PendingAction {
@@ -27,7 +30,7 @@ interface PendingAction {
     services: string[] | null;
 }
 
-type ComposeAction = 'up' | 'up_with_deps' | 'stop' | 'down' | 'unpause' | 'pull' | 'build' | 'recreate';
+type ComposeAction = 'up' | 'up_with_deps' | 'stop' | 'down' | 'unpause' | 'pull' | 'build' | 'recreate' | 'restart' | 'rm';
 
 interface DockerContext {
     name: string;
@@ -52,6 +55,7 @@ interface ProjectResources {
 }
 
 const EMPTY_COMPOSE_OPTIONS: ProjectComposeOptions = { profiles: [], envFile: null };
+const EMPTY_TERMINAL_COMMAND_PRESETS: [] = [];
 
 function workspaceLabel(path: string): string {
     const segments = path.split(/[\\/]/).filter(Boolean);
@@ -92,6 +96,7 @@ export default function App() {
     const [features, setFeatures] = useState<FeatureFlags>(defaultFeatureFlags);
     const [projectOptions, setProjectOptions] = useState<ProjectComposeOptionsMap>({});
     const [servicePresets, setServicePresets] = useState<ServicePresets>({});
+    const [terminalCommandPresets, setTerminalCommandPresets] = useState<TerminalCommandPresets>({});
     const [serviceNames, setServiceNames] = useState<ServiceNames>({});
     const [editingService, setEditingService] = useState<{ path: string; service: string } | null>(null);
     const [serviceNameDraft, setServiceNameDraft] = useState('');
@@ -111,6 +116,8 @@ export default function App() {
     serviceNamesRef.current = serviceNames;
     const [featureModalOpen, setFeatureModalOpen] = useState(false);
     const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+    const [screen, setScreen] = useState<'projects' | 'dashboard'>('projects');
+    const [dashboardSelection, setDashboardSelection] = useState<DashboardSelection>({});
     const projectsRef = useRef(projects);
     projectsRef.current = projects;
 
@@ -161,6 +168,8 @@ export default function App() {
             setPreferredIDE(parsePreferredIDE(localStorage.getItem('sandbox-ide')));
             setProjectOptions(parseProjectComposeOptions(localStorage.getItem('sandbox-compose-options')));
             setServicePresets(parseServicePresets(localStorage.getItem('sandbox-service-presets')));
+            setTerminalCommandPresets(parseTerminalCommandPresets(localStorage.getItem('sandbox-terminal-command-presets')));
+            setDashboardSelection(parseDashboardSelection(localStorage.getItem('sandbox-dashboard-selection')));
             setRecentWorkspaces(parseRecentWorkspaces(localStorage.getItem('sandbox-recent-workspaces')));
             setFeatures(parseFeatureFlags(localStorage.getItem('sandbox-features')));
             const savedTheme = localStorage.getItem('sandbox-theme');
@@ -586,6 +595,8 @@ export default function App() {
             stop: 'Parando…',
             down: 'Parando…',
             unpause: 'Retomando…',
+            restart: 'Reiniciando…',
+            rm: 'Removendo containers…',
             pull: 'Baixando imagens…',
             build: 'Construindo…',
             recreate: 'Recriando…',
@@ -626,11 +637,31 @@ export default function App() {
             stop: 'Serviços selecionados parados',
             down: 'Projeto parado',
             unpause: 'Serviços retomados',
+            restart: 'Serviço reiniciado',
+            rm: 'Containers removidos; volumes preservados',
             pull: 'Imagens atualizadas',
             build: 'Build concluído',
             recreate: 'Containers recriados',
         };
         setMessage(error ? `Erro em ${path}: ${error}` : `${successMessages[action]} em ${path}.`);
+    };
+
+    const toggleDashboardTerminal = (path: string, service: string) => {
+        setActiveTerminalPanel(current => current?.path === path && current.service === service
+            ? null : { path, service });
+        setActiveLogPanel(null);
+        setActiveMetrics(null);
+    };
+
+    const removeDashboardContainers = (path: string, service: string, displayName: string) => {
+        const warning = `Remover todos os containers do serviço "${displayName}"? Containers em execução serão parados. Volumes não serão removidos.`;
+        if (!window.confirm(warning)) return;
+        if (activeTerminalPanel?.path === path && activeTerminalPanel.service === service) {
+            setActiveTerminalPanel(null);
+        }
+        if (activeLogPanel?.path === path && activeLogPanel.service === service) setActiveLogPanel(null);
+        if (activeMetrics?.path === path && activeMetrics.service === service) setActiveMetrics(null);
+        void handleDockerAction(path, 'rm', [service]);
     };
 
     const saveServicePreset = (path: string) => {
@@ -665,6 +696,36 @@ export default function App() {
             setSelectedPresets(prev => ({ ...prev, [path]: next[path][0]?.name ?? '' }));
         } catch (err) {
             setMessage(`Erro ao remover predefinição: ${err}`);
+        }
+    };
+
+    const saveTerminalCommandPreset = (path: string, service: string, name: string, command: string) => {
+        const key = terminalCommandPresetKey(dockerContext, path, service);
+        const presets = [
+            ...(terminalCommandPresets[key] ?? []).filter(preset => preset.name !== name),
+            { name, command },
+        ].sort((a, b) => a.name.localeCompare(b.name));
+        const next = { ...terminalCommandPresets, [key]: presets };
+        try {
+            localStorage.setItem('sandbox-terminal-command-presets', JSON.stringify(next));
+            setTerminalCommandPresets(next);
+            setMessage(`Preset "${name}" salvo para ${service}.`);
+        } catch (err) {
+            setMessage(`Erro ao salvar preset de comando: ${err}`);
+        }
+    };
+
+    const removeTerminalCommandPreset = (path: string, service: string, name: string) => {
+        const key = terminalCommandPresetKey(dockerContext, path, service);
+        const next = { ...terminalCommandPresets };
+        next[key] = (next[key] ?? []).filter(preset => preset.name !== name);
+        if (!next[key].length) delete next[key];
+        try {
+            localStorage.setItem('sandbox-terminal-command-presets', JSON.stringify(next));
+            setTerminalCommandPresets(next);
+            setMessage(`Preset "${name}" removido de ${service}.`);
+        } catch (err) {
+            setMessage(`Erro ao remover preset de comando: ${err}`);
         }
     };
 
@@ -799,6 +860,21 @@ export default function App() {
         }
     };
 
+    const toggleDashboardService = (path: string, service: string) => {
+        const key = dashboardSelectionKey(dockerContext, path);
+        const current = dashboardSelection[key] ?? [];
+        const nextServices = current.includes(service)
+            ? current.filter(name => name !== service)
+            : [...current, service];
+        const next = { ...dashboardSelection, [key]: nextServices };
+        try {
+            localStorage.setItem('sandbox-dashboard-selection', JSON.stringify(next));
+            setDashboardSelection(next);
+        } catch (err) {
+            setMessage(`Erro ao salvar os serviços do dashboard: ${err}`);
+        }
+    };
+
     const hasBusyProjects = Object.keys(busyPaths).length > 0;
     const runningProjects = projects.filter(isProjectActive).length;
     const services = projects.flatMap(project => project.services);
@@ -815,6 +891,11 @@ export default function App() {
         ),
         0,
     );
+    const currentDashboardSelection = Object.fromEntries(projects.map(project => [
+        project.path,
+        dashboardSelection[dashboardSelectionKey(dockerContext, project.path)] ?? [],
+    ]));
+    const dashboardBusyPaths = Object.keys(busyPaths);
 
     return (
         <main className="app-shell">
@@ -903,6 +984,20 @@ export default function App() {
                                 </details>
                             </>
                         )}
+                        <div className="screen-switcher" role="group" aria-label="Navegação principal">
+                            <button
+                                type="button"
+                                className={`button ${screen === 'projects' ? 'button-primary' : 'button-quiet'}`}
+                                aria-pressed={screen === 'projects'}
+                                onClick={() => setScreen('projects')}
+                            >Projetos</button>
+                            <button
+                                type="button"
+                                className={`button ${screen === 'dashboard' ? 'button-primary' : 'button-quiet'}`}
+                                aria-pressed={screen === 'dashboard'}
+                                onClick={() => setScreen('dashboard')}
+                            >Dashboard</button>
+                        </div>
                         <span className="topbar-divider" aria-hidden="true" />
                         {adminStatus === false && (
                             <button
@@ -990,7 +1085,7 @@ export default function App() {
                     </div>
                 )}
 
-                <section className="projects-section">
+                {screen === 'projects' ? <section className="projects-section">
                     <div className="project-filters">
                         <label className="search-field">
                             <Icon name="search" />
@@ -1472,6 +1567,10 @@ export default function App() {
                                                         const serviceBusyLabel = busy && (busy.services === null || busy.services.includes(service.name))
                                                             ? busy.label : undefined;
                                                         const displayName = serviceDisplayName(serviceNames, project.path, service.name);
+                                                        const dashboardTracked = currentDashboardSelection[project.path]?.includes(service.name) ?? false;
+                                                        const terminalPresets = terminalCommandPresets[
+                                                            terminalCommandPresetKey(dockerContext, project.path, service.name)
+                                                        ] ?? EMPTY_TERMINAL_COMMAND_PRESETS;
                                                         const isEditingName = editingService?.path === project.path
                                                             && editingService.service === service.name;
                                                         return (
@@ -1511,24 +1610,14 @@ export default function App() {
                                                                             </form>
                                                                         ) : (
                                                                             <>
-                                                                                <strong>{displayName}</strong>
+                                                                                <strong title={service.image ? `Imagem: ${service.image}` : undefined}>{displayName}</strong>
                                                                                 {displayName !== service.name && <span className="service-original-name">{service.name}</span>}
-                                                                                <button
-                                                                                    className="icon-button service-rename-toggle"
-                                                                                    aria-label={`Editar nome exibido de ${service.name}`}
-                                                                                    title="Editar nome exibido"
-                                                                                    onClick={() => {
-                                                                                        setEditingService({ path: project.path, service: service.name });
-                                                                                        setServiceNameDraft(displayName === service.name ? '' : displayName);
-                                                                                    }}
-                                                                                ><Icon name="edit" size={14} /></button>
                                                                             </>
                                                                         )}
                                                                         {features.state && <span className={`status-pill ${active && service.health !== 'unhealthy' ? 'status-online' : 'status-stopped'}`}>
                                                                             <span className="status-dot" />{serviceBusyLabel || serviceStateLabel(service)}
                                                                         </span>}
                                                                         {service.containers > 1 && <span className="services-hint">{service.running_containers}/{service.containers} containers ativos</span>}
-                                                                        {service.image && <span className="service-image">{service.image}</span>}
                                                                     </div>
                                                                     {features.ports && <div className="port-list">
                                                                         {ports.length === 0 ? (
@@ -1551,24 +1640,20 @@ export default function App() {
                                                                     </div>}
                                                                 </div>
                                                                 <div className="service-actions">
-                                                                {hasContainerDetails && <button
-                                                                    className={`icon-button service-metrics-toggle${showMetrics ? ' is-active' : ''}`}
-                                                                    aria-label={`${showMetrics ? 'Fechar' : 'Exibir'} métricas de ${service.name} de ${project.name}`}
-                                                                    title={features.metrics ? 'Consumo' : 'Detalhes'}
-                                                                    aria-expanded={showMetrics}
-                                                                    onClick={() => setActiveMetrics(showMetrics ? null : { path: project.path, service: service.name })}
-                                                                ><Icon name="chart" /></button>}
                                                                 <button
-                                                                    className={`icon-button service-log-toggle${showLogs ? ' is-active' : ''}`}
-                                                                    aria-label={`${showLogs ? 'Fechar' : 'Exibir'} logs de ${service.name} de ${project.name}`}
-                                                                    title="Logs"
-                                                                    aria-expanded={showLogs}
-                                                                    onClick={() => setActiveLogPanel(showLogs ? null : { path: project.path, service: service.name })}
-                                                                ><Icon name="logs" /></button>
+                                                                    type="button"
+                                                                    className="feature-switch dashboard-monitor-switch"
+                                                                    role="switch"
+                                                                    aria-checked={dashboardTracked}
+                                                                    aria-label={`Acompanhar serviço ${service.name} de ${project.name} no Dashboard`}
+                                                                    title={dashboardTracked ? 'Remover do Dashboard' : 'Acompanhar no Dashboard'}
+                                                                    onClick={() => toggleDashboardService(project.path, service.name)}
+                                                                ><span className="feature-switch-thumb" /></button>
                                                                 <button
+                                                                    type="button"
                                                                     className={`icon-button service-terminal-toggle${showTerminal ? ' is-active' : ''}`}
                                                                     aria-label={`${showTerminal ? 'Fechar' : 'Abrir'} terminal de ${service.name} de ${project.name}`}
-                                                                    title="Terminal"
+                                                                    title={showTerminal ? 'Fechar terminal' : 'Terminal'}
                                                                     aria-expanded={showTerminal}
                                                                     disabled={!service.running_containers || !!project.error || controlsDisabled}
                                                                     onClick={() => {
@@ -1578,6 +1663,48 @@ export default function App() {
                                                                         setActiveMetrics(null);
                                                                     }}
                                                                 ><Icon name="terminal" /></button>
+                                                                <details className="popover menu service-tools-menu">
+                                                                    <summary className="icon-button" aria-label={`Mais ações do serviço ${service.name}`} title="Mais ações"><Icon name="more" /></summary>
+                                                                    <div className="popover-panel">
+                                                                        {service.image && <span className="menu-label service-image-menu-label" title={service.image}>Imagem · {service.image}</span>}
+                                                                        {hasContainerDetails && <button
+                                                                            className="menu-item service-metrics-toggle"
+                                                                            aria-label={`${showMetrics ? 'Fechar' : 'Exibir'} métricas de ${service.name} de ${project.name}`}
+                                                                            aria-expanded={showMetrics}
+                                                                            onClick={event => {
+                                                                                event.currentTarget.closest('details')?.removeAttribute('open');
+                                                                                setActiveMetrics(showMetrics ? null : { path: project.path, service: service.name });
+                                                                            }}
+                                                                        ><Icon name="chart" />{showMetrics ? 'Fechar consumo' : features.metrics ? 'Consumo e detalhes' : 'Detalhes'}</button>}
+                                                                        <button
+                                                                            className="menu-item service-log-toggle"
+                                                                            aria-label={`${showLogs ? 'Fechar' : 'Exibir'} logs de ${service.name} de ${project.name}`}
+                                                                            aria-expanded={showLogs}
+                                                                            onClick={event => {
+                                                                                event.currentTarget.closest('details')?.removeAttribute('open');
+                                                                                setActiveLogPanel(showLogs ? null : { path: project.path, service: service.name });
+                                                                            }}
+                                                                        ><Icon name="logs" />{showLogs ? 'Fechar logs' : 'Logs'}</button>
+                                                                        <button
+                                                                            className="menu-item"
+                                                                            aria-label={`Reiniciar serviço ${service.name} de ${project.name}`}
+                                                                            disabled={!service.running_containers || paused || !!project.error || controlsDisabled}
+                                                                            onClick={event => {
+                                                                                event.currentTarget.closest('details')?.removeAttribute('open');
+                                                                                void handleDockerAction(project.path, 'restart', [service.name]);
+                                                                            }}
+                                                                        ><Icon name="restart" />Reiniciar</button>
+                                                                        <button
+                                                                            className="menu-item"
+                                                                            aria-label={`Editar nome exibido de ${service.name}`}
+                                                                            onClick={event => {
+                                                                                event.currentTarget.closest('details')?.removeAttribute('open');
+                                                                                setEditingService({ path: project.path, service: service.name });
+                                                                                setServiceNameDraft(displayName === service.name ? '' : displayName);
+                                                                            }}
+                                                                        ><Icon name="edit" />Editar nome</button>
+                                                                    </div>
+                                                                </details>
                                                                 <button
                                                                     className={`button ${active && !paused ? 'button-danger' : 'button-start'}`}
                                                                     disabled={controlsDisabled || !!project.error}
@@ -1606,6 +1733,9 @@ export default function App() {
                                                                     envFile={composeOptions.envFile}
                                                                     service={service.name}
                                                                     displayName={displayName}
+                                                                    commandPresets={terminalPresets}
+                                                                    onSaveCommandPreset={(name, command) => saveTerminalCommandPreset(project.path, service.name, name, command)}
+                                                                    onRemoveCommandPreset={name => removeTerminalCommandPreset(project.path, service.name, name)}
                                                                     onClose={() => setActiveTerminalPanel(null)}
                                                                 />
                                                             )}
@@ -1635,7 +1765,27 @@ export default function App() {
                             })}
                         </div>
                     )}
-                </section>
+                </section> : (
+                    <Dashboard
+                        projects={projects}
+                        dockerContext={dockerContext}
+                        selection={currentDashboardSelection}
+                        projectOptions={projectOptions}
+                        serviceNames={serviceNames}
+                        metricsEnabled={features.metrics}
+                        semanticErrors={features.semanticErrors}
+                        busyPaths={dashboardBusyPaths}
+                        controlsDisabled={loading}
+                        activeTerminal={activeTerminalPanel}
+                        terminalCommandPresets={terminalCommandPresets}
+                        onAction={(path, service, action) => void handleDockerAction(path, action, [service])}
+                        onToggleTerminal={toggleDashboardTerminal}
+                        onCloseTerminal={() => setActiveTerminalPanel(null)}
+                        onSaveTerminalCommandPreset={saveTerminalCommandPreset}
+                        onRemoveTerminalCommandPreset={removeTerminalCommandPreset}
+                        onRemoveContainers={removeDashboardContainers}
+                    />
+                )}
             </div>
             {featureModalOpen && (
                 <div className="modal-backdrop" onMouseDown={event => {

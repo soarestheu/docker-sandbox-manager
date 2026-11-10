@@ -5,6 +5,8 @@ const paths = {
     more: <><circle cx="5" cy="12" r="1.5" fill="currentColor" /><circle cx="12" cy="12" r="1.5" fill="currentColor" /><circle cx="19" cy="12" r="1.5" fill="currentColor" /></>,
     play: <path d="M8 5.5v13l11-6.5Z" />,
     stop: <rect x="6.5" y="6.5" width="11" height="11" rx="2" />,
+    restart: <><path d="M21 2v6h-6" /><path d="M21 8a9 9 0 1 0 2.64 6.36" /></>,
+    trash: <><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" /><path d="M10 11v5M14 11v5" /></>,
     logs: <path d="M5 6h14M5 12h14M5 18h9" />,
     terminal: <path d="m5 8 5 4-5 4M12 17h7" />,
     chart: <path d="M5 20v-8M12 20V5M19 20v-5" />,
