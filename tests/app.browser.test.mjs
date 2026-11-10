@@ -54,6 +54,8 @@ function mockTauri() {
             if (command === 'plugin:event|listen') { listeners.set(++nextId, args); return nextId; }
             if (command === 'plugin:event|unlisten') return;
             if (command === 'plugin:app|version') return '0.5.2';
+            if (command === 'admin_launch_status') return false;
+            if (command === 'set_close_to_tray') return;
             if (command === 'plugin:dialog|open') return '/fixture';
             if (command === 'start_service_logs') {
                 if (window.holdNextLogs) {
@@ -295,6 +297,13 @@ test('service selection, scoped actions, stale polling and project stop in the b
         assert.equal(await evaluate('window.testCalls.filter(call => call.command === "get_service_metrics").length'), 0);
         await evaluate('document.querySelector(\'.topbar [aria-label="Preferências"]\').click()');
         await waitFor('document.querySelector(\'[role="dialog"]\') !== null');
+        await evaluate('document.querySelector(\'[aria-label="Minimizar para bandeja: desativado"]\').click()');
+        await waitFor('document.querySelector(\'[aria-label="Minimizar para bandeja: ativado"]\') !== null');
+        assert.equal(await evaluate('localStorage.getItem("sandbox-close-to-tray")'), 'true');
+        assert.deepEqual(await evaluate('window.testCalls.filter(call => call.command === "set_close_to_tray").at(-1).args'), { enabled: true });
+        await evaluate('document.querySelector(\'[aria-label="Minimizar para bandeja: ativado"]\').click()');
+        await waitFor('document.querySelector(\'[aria-label="Minimizar para bandeja: desativado"]\') !== null');
+        assert.equal(await evaluate('localStorage.getItem("sandbox-close-to-tray")'), 'false');
         await input('#preferred-ide', 'phpstorm');
         assert.equal(await evaluate('localStorage.getItem("sandbox-ide")'), 'phpstorm');
         await evaluate('document.querySelector(\'[aria-label="Notificações: desativadas"]\').click()');

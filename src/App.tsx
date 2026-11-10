@@ -67,6 +67,7 @@ export default function App() {
     const [loading, setLoading] = useState(false);
     const [notificationsEnabled, setNotificationsEnabled] = useState(false);
     const [adminStatus, setAdminStatus] = useState<boolean | null>(null);
+    const [closeToTray, setCloseToTray] = useState(false);
     const [dockerContexts, setDockerContexts] = useState<DockerContext[]>([]);
     const [dockerContext, setDockerContext] = useState('');
     const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>([]);
@@ -129,8 +130,18 @@ export default function App() {
 
     useEffect(() => {
         let mounted = true;
-        void invoke<boolean | null>('admin_launch_status').then(status => {
-            if (mounted) setAdminStatus(status);
+        void invoke<boolean | null>('admin_launch_status').then(async status => {
+            if (!mounted) return;
+            setAdminStatus(status);
+            if (status === false && localStorage.getItem('sandbox-admin-launch') === 'true') {
+                try {
+                    await invoke('reopen_as_admin');
+                    const { exit } = await import('@tauri-apps/plugin-process');
+                    await exit(0);
+                } catch (err) {
+                    if (mounted) setMessage(`Erro ao reabrir como administrador: ${err}`);
+                }
+            }
         }).catch(err => {
             if (mounted) setMessage(`Erro ao verificar privilégios administrativos: ${err}`);
         });
@@ -138,7 +149,13 @@ export default function App() {
     }, []);
 
     useEffect(() => {
+        let mounted = true;
         try {
+            const shouldCloseToTray = localStorage.getItem('sandbox-close-to-tray') === 'true';
+            setCloseToTray(shouldCloseToTray);
+            void invoke('set_close_to_tray', { enabled: shouldCloseToTray }).catch(err => {
+                if (mounted) setMessage(`Erro ao aplicar a preferência da bandeja: ${err}`);
+            });
             setPreferences(parsePreferences(localStorage.getItem('sandbox-workspace')));
             setServiceNames(parseServiceNames(localStorage.getItem('sandbox-service-names')));
             setPreferredIDE(parsePreferredIDE(localStorage.getItem('sandbox-ide')));
@@ -154,8 +171,9 @@ export default function App() {
                 });
             }
         } catch (err) {
-            setMessage(`Erro ao carregar configurações locais: ${err}`);
+            if (mounted) setMessage(`Erro ao carregar configurações locais: ${err}`);
         }
+        return () => { mounted = false; };
     }, []);
 
     useEffect(() => {
@@ -208,6 +226,16 @@ export default function App() {
             }
         } catch (err) {
             setMessage(`Erro ao salvar controles de funcionalidades: ${err}`);
+        }
+    };
+
+    const updateCloseToTray = async (enabled: boolean) => {
+        try {
+            localStorage.setItem('sandbox-close-to-tray', String(enabled));
+            await invoke('set_close_to_tray', { enabled });
+            setCloseToTray(enabled);
+        } catch (err) {
+            setMessage(`Erro ao salvar a preferência da bandeja: ${err}`);
         }
     };
 
@@ -882,6 +910,7 @@ export default function App() {
                                 onClick={() => {
                                     void invoke('reopen_as_admin')
                                         .then(async () => {
+                                            localStorage.setItem('sandbox-admin-launch', 'true');
                                             const { exit } = await import('@tauri-apps/plugin-process');
                                             await exit(0);
                                         })
@@ -1160,7 +1189,7 @@ export default function App() {
                                                             <input
                                                                 className="utility-input"
                                                                 aria-label={`Apelido de ${project.name}`}
-                                                                placeholder="Ex.: PPC"
+                                                                placeholder="Ex.: Projeto principal"
                                                                 maxLength={60}
                                                                 value={preferences[project.path]?.alias ?? ''}
                                                                 onChange={event => updatePreference(project.path, { alias: event.target.value })}
@@ -1633,6 +1662,24 @@ export default function App() {
                                     {IDE_CHOICES.map(ide => <option key={ide.id} value={ide.id}>{ide.label}</option>)}
                                 </select>
                                 <small>O comando da IDE selecionada precisa estar disponível no PATH do sistema.</small>
+                            </div>
+                            <div className="feature-option">
+                                <span><strong>Minimizar para a bandeja ao fechar</strong><small>Ao clicar no X, mantém o aplicativo aberto na bandeja do sistema.</small></span>
+                                <div className="feature-control">
+                                    <span className={`feature-status${closeToTray ? ' is-enabled' : ''}`}>
+                                        {closeToTray ? 'Ativado' : 'Desativado'}
+                                    </span>
+                                    <button
+                                        className="feature-switch"
+                                        type="button"
+                                        role="switch"
+                                        aria-checked={closeToTray}
+                                        aria-label={`Minimizar para bandeja: ${closeToTray ? 'ativado' : 'desativado'}`}
+                                        onClick={() => void updateCloseToTray(!closeToTray)}
+                                    >
+                                        <span className="feature-switch-thumb" />
+                                    </button>
+                                </div>
                             </div>
                             <div className="feature-option">
                                 <span><strong>Notificações</strong><small>Receba alertas quando containers pararem, falharem ou se recuperarem.</small></span>

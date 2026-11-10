@@ -6,12 +6,15 @@ mod utilities;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{
     Manager,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 };
 use tauri_plugin_notification::NotificationExt;
+
+struct CloseToTray(AtomicBool);
 
 #[cfg(target_os = "windows")]
 #[link(name = "shell32")]
@@ -84,6 +87,11 @@ fn admin_launch_status() -> Option<bool> {
     {
         None
     }
+}
+
+#[tauri::command]
+fn set_close_to_tray(state: tauri::State<'_, CloseToTray>, enabled: bool) {
+    state.0.store(enabled, Ordering::Relaxed);
 }
 
 #[tauri::command]
@@ -340,12 +348,23 @@ async fn diagnose_project(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            if let Some(window) = app.get_webview_window("main") {
+                if let Err(err) = window.show() {
+                    eprintln!("Erro ao exibir a janela: {err}");
+                }
+                if let Err(err) = window.set_focus() {
+                    eprintln!("Erro ao focar a janela: {err}");
+                }
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .manage(CloseToTray(AtomicBool::new(false)))
         .manage(logs::LogStreams::default())
         .manage(terminals::TerminalStreams::default())
         .manage(utilities::IdleMonitor::default())
@@ -398,9 +417,11 @@ pub fn run() {
         })
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {
-                api.prevent_close();
-                if let Err(err) = window.hide() {
-                    eprintln!("Erro ao minimizar a janela para a bandeja: {err}");
+                if window.state::<CloseToTray>().0.load(Ordering::Relaxed) {
+                    api.prevent_close();
+                    if let Err(err) = window.hide() {
+                        eprintln!("Erro ao minimizar a janela para a bandeja: {err}");
+                    }
                 }
             }
             tauri::WindowEvent::Destroyed => {
@@ -418,6 +439,7 @@ pub fn run() {
             get_docker_contexts,
             open_in_ide,
             admin_launch_status,
+            set_close_to_tray,
             reopen_as_admin,
             send_state_notification,
             scan_directory,
