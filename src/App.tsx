@@ -77,7 +77,9 @@ export default function App() {
     const [recentWorkspaces, setRecentWorkspaces] = useState<string[]>([]);
 
     const [activeLogPanel, setActiveLogPanel] = useState<{ path: string; service: string } | null>(null);
-    const [activeTerminalPanel, setActiveTerminalPanel] = useState<{ path: string; service: string } | null>(null);
+    const [activeTerminalPanel, setActiveTerminalPanel] = useState<{
+        context: string; path: string; service: string;
+    } | null>(null);
     const [selectedServices, setSelectedServices] = useState<Record<string, string[]>>({});
     const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
     const scanPopoverRef = useRef<HTMLDetailsElement>(null);
@@ -259,7 +261,6 @@ export default function App() {
         setSelectedPaths([]);
         setSelectedServices({});
         setActiveLogPanel(null);
-        setActiveTerminalPanel(null);
         setActiveMetrics(null);
     }, [query, statusFilter, favoritesOnly, groupFilter]);
 
@@ -330,7 +331,9 @@ export default function App() {
         }
     };
 
-    const applyProjectState = (path: string, state: ProjectState) => {
+    const applyProjectState = (
+        path: string, state: ProjectState, suppressStopNotifications: ReadonlySet<string> = new Set<string>(),
+    ) => {
         const previousProject = projectsRef.current.find(project => project.path === path);
         for (const service of state.services) {
             const previous = previousProject?.services.find(item => item.name === service.name);
@@ -353,13 +356,15 @@ export default function App() {
                 : 0;
             const becameStopped = isServiceActive(previous)
                 && !isServiceActive(service) && service.state !== 'paused';
+            const unexpectedStop = !suppressStopNotifications.has(service.name)
+                && (stoppedContainers > 0 || becameStopped);
             const displayName = serviceDisplayName(serviceNamesRef.current, path, service.name);
-            if (failedTransition || stoppedContainers > 0 || becameStopped) {
+            if (failedTransition || unexpectedStop) {
                 void invoke('send_state_notification', {
                     title: `${isFailed ? 'Falha no serviço' : 'Container parado'}: ${displayName}`,
                     body: `${path} · ${isFailed
                         ? service.health === 'unhealthy' ? 'container não saudável' : 'container encerrado com falha'
-                        : stoppedContainers > 0
+                        : stoppedContainers > 0 && !suppressStopNotifications.has(service.name)
                             ? `${stoppedContainers} container${stoppedContainers === 1 ? '' : 's'} interrompido${stoppedContainers === 1 ? '' : 's'}`
                             : 'serviço parado'}`,
                 }).catch(err => setMessage(`Erro ao enviar notificação: ${err}`));
@@ -409,7 +414,9 @@ export default function App() {
     const optionsFor = (path: string): ProjectComposeOptions =>
         projectOptions[path] ?? EMPTY_COMPOSE_OPTIONS;
 
-    const refreshProject = async (path: string, options = optionsFor(path)) => {
+    const refreshProject = async (
+        path: string, options = optionsFor(path), suppressStopNotifications: ReadonlySet<string> = new Set<string>(),
+    ) => {
         const version = (requestVersions.current[path] || 0) + 1;
         requestVersions.current[path] = version;
         try {
@@ -420,7 +427,7 @@ export default function App() {
                 envFile: options.envFile,
             });
             if (requestVersions.current[path] === version) {
-                applyProjectState(path, state);
+                applyProjectState(path, state, suppressStopNotifications);
                 if (featureRef.current.autoPause && !busyRef.current[path]) {
                     try {
                         const paused = await invoke<string[]>('pause_idle_containers', {
@@ -438,7 +445,9 @@ export default function App() {
                                 profiles: options.profiles,
                                 envFile: options.envFile,
                             });
-                            if (requestVersions.current[path] === version) applyProjectState(path, updated);
+                            if (requestVersions.current[path] === version) {
+                                applyProjectState(path, updated, suppressStopNotifications);
+                            }
                         }
                     } catch (err) {
                         setMessage(current => current === `Falha na pausa automática em ${path}: ${err}`
@@ -566,7 +575,6 @@ export default function App() {
             setSelectedPaths([]);
             setSelectedServices({});
             setActiveLogPanel(null);
-            setActiveTerminalPanel(null);
             setActiveMetrics(null);
         } catch (err) {
             setMessage(`Erro ao escanear: ${err}`);
@@ -606,6 +614,11 @@ export default function App() {
 
     const performAction = async (path: string, action: ComposeAction, services?: string[]) => {
         if (busyRef.current[path]) return 'Já existe uma ação em andamento neste projeto.';
+        const stoppingActions: ComposeAction[] = ['stop', 'down', 'restart', 'recreate', 'rm'];
+        const suppressStopNotifications = stoppingActions.includes(action)
+            ? new Set(services ?? projectsRef.current
+                .find(project => project.path === path)?.services.map(service => service.name) ?? [])
+            : new Set<string>();
         const actionLabels: Record<ComposeAction, string> = {
             up: 'Iniciando…',
             up_with_deps: 'Iniciando dependências…',
@@ -634,11 +647,13 @@ export default function App() {
                 action,
                 services: services ?? null,
             });
-            if (requestVersions.current[path] === version) applyProjectState(path, state);
+            if (requestVersions.current[path] === version) {
+                applyProjectState(path, state, suppressStopNotifications);
+            }
             return null;
         } catch (err) {
             // Compose can apply only part of an action before returning an error.
-            await refreshProject(path);
+            await refreshProject(path, optionsFor(path), suppressStopNotifications);
             return String(err);
         } finally {
             delete busyRef.current[path];
@@ -670,15 +685,17 @@ export default function App() {
     };
 
     const toggleDashboardTerminal = (path: string, service: string) => {
-        setActiveTerminalPanel(current => current?.path === path && current.service === service
-            ? null : { path, service });
+        setActiveTerminalPanel(current => current?.context === dockerContext
+            && current.path === path && current.service === service
+            ? null : { context: dockerContext, path, service });
         setActiveMetrics(null);
     };
 
     const removeDashboardContainers = (path: string, service: string, displayName: string) => {
         const warning = `Remover todos os containers do serviço "${displayName}"? Containers em execução serão parados. Volumes não serão removidos.`;
         if (!window.confirm(warning)) return;
-        if (activeTerminalPanel?.path === path && activeTerminalPanel.service === service) {
+        if (activeTerminalPanel?.context === dockerContext
+            && activeTerminalPanel.path === path && activeTerminalPanel.service === service) {
             setActiveTerminalPanel(null);
         }
         if (activeLogPanel?.path === path && activeLogPanel.service === service) setActiveLogPanel(null);
@@ -778,6 +795,17 @@ export default function App() {
         }));
     };
 
+    const dismissAutoCommandResult = (key: string, name: string) => {
+        setAutoCommandResults(previous => {
+            const results = { ...previous[key] };
+            delete results[name];
+            const next = { ...previous };
+            if (Object.keys(results).length) next[key] = results;
+            else delete next[key];
+            return next;
+        });
+    };
+
     const consumeAutoCommandBatch = (key: string, id: string) => {
         setAutoCommandBatches(previous => {
             if (previous[key]?.id !== id) return previous;
@@ -806,7 +834,9 @@ export default function App() {
             delete next[key];
             return next;
         });
-        setActiveTerminalPanel(null);
+        const [context, path, service] = JSON.parse(key) as [string, string, string];
+        setActiveTerminalPanel(current => current?.context === context
+            && current.path === path && current.service === service ? null : current);
     };
 
     const removeTerminalCommandPreset = (path: string, service: string, name: string) => {
@@ -990,6 +1020,14 @@ export default function App() {
         dashboardSelection[dashboardSelectionKey(dockerContext, project.path)] ?? [],
     ]));
     const dashboardBusyPaths = Object.keys(busyPaths);
+    const terminalSessionKeys = [...new Set([
+        ...Object.keys(autoTerminalKeys),
+        ...(activeTerminalPanel
+            ? [terminalCommandPresetKey(
+                activeTerminalPanel.context, activeTerminalPanel.path, activeTerminalPanel.service,
+            )]
+            : []),
+    ])];
 
     return (
         <main className="app-shell">
@@ -1128,7 +1166,7 @@ export default function App() {
                     </div>
                 </header>
 
-                {updater.state.status !== 'idle' && !(updater.dismissed && updater.state.status === 'available') && (
+                {updater.state.status !== 'idle' && !(updater.dismissed && updater.state.status !== 'downloading') && (
                     <div className="update-banner" role="status">
                         {updater.state.status === 'available' && (
                             <>
@@ -1140,7 +1178,17 @@ export default function App() {
                         {updater.state.status === 'downloading' && (
                             <span>Baixando {updater.state.version}{updater.state.progress !== null ? ` — ${updater.state.progress}%` : '…'}</span>
                         )}
-                        {updater.state.status === 'error' && <span>Falha ao atualizar: {updater.state.message}</span>}
+                        {updater.state.status === 'error' && (
+                            <>
+                                <span>Falha ao atualizar: {updater.state.message}</span>
+                                <button
+                                    className="icon-button"
+                                    onClick={updater.dismiss}
+                                    aria-label="Dispensar erro de atualização"
+                                    title="Dispensar erro"
+                                ><Icon name="close" /></button>
+                            </>
+                        )}
                     </div>
                 )}
 
@@ -1304,7 +1352,6 @@ export default function App() {
                                                 onClick={() => {
                                                     setExpandedProjects(prev => ({ ...prev, [project.path]: !isExpanded }));
                                                     if (isExpanded && activeLogPanel?.path === project.path) setActiveLogPanel(null);
-                                                    if (isExpanded && activeTerminalPanel?.path === project.path) setActiveTerminalPanel(null);
                                                     if (isExpanded && activeMetrics?.path === project.path) setActiveMetrics(null);
                                                 }}
                                             ><Icon name="chevron" /></button>
@@ -1655,16 +1702,15 @@ export default function App() {
                                                         const paused = service.state === 'paused';
                                                         const ports = displayPorts(service.ports);
                                                         const showLogs = activeLogPanel?.path === project.path && activeLogPanel.service === service.name;
-                                                        const showTerminal = activeTerminalPanel?.path === project.path && activeTerminalPanel.service === service.name;
+                                                        const showTerminal = activeTerminalPanel?.context === dockerContext
+                                                            && activeTerminalPanel.path === project.path
+                                                            && activeTerminalPanel.service === service.name;
                                                         const showMetrics = activeMetrics?.path === project.path && activeMetrics.service === service.name;
                                                         const hasContainerDetails = features.metrics || features.containerId || features.inspect || features.volumes || features.state;
                                                         const serviceBusyLabel = busy && (busy.services === null || busy.services.includes(service.name))
                                                             ? busy.label : undefined;
                                                         const displayName = serviceDisplayName(serviceNames, project.path, service.name);
                                                         const dashboardTracked = currentDashboardSelection[project.path]?.includes(service.name) ?? false;
-                                                        const terminalPresets = terminalCommandPresets[
-                                                            terminalCommandPresetKey(dockerContext, project.path, service.name)
-                                                        ] ?? EMPTY_TERMINAL_COMMAND_PRESETS;
                                                         const terminalPresetKey = terminalCommandPresetKey(dockerContext, project.path, service.name);
                                                         const keepAutoTerminalOpen = !!autoTerminalKeys[terminalPresetKey];
                                                         const terminalPanelOpen = showTerminal || keepAutoTerminalOpen;
@@ -1757,7 +1803,9 @@ export default function App() {
                                                                     onClick={() => {
                                                                         if (terminalPanelOpen) closeAutoTerminal(terminalPresetKey);
                                                                         else {
-                                                                            setActiveTerminalPanel({ path: project.path, service: service.name });
+                                                                            setActiveTerminalPanel({
+                                                                                context: dockerContext, path: project.path, service: service.name,
+                                                                            });
                                                                             setActiveMetrics(null);
                                                                         }
                                                                     }}
@@ -1823,8 +1871,8 @@ export default function App() {
                                                                 ><Icon name={active && !paused ? 'stop' : 'play'} size={13} />{serviceBusyLabel || (paused ? 'Retomar' : active ? 'Parar' : 'Iniciar')}</button>
                                                                 </div>
                                                             </div>
-                                                            {(showLogs || terminalPanelOpen) && isExpanded && (
-                                                                <div className={`service-inspector-panels${showLogs && terminalPanelOpen ? ' is-split' : ''}`}>
+                                                            {showLogs && isExpanded && (
+                                                                <div className="service-inspector-panels">
                                                                     {showLogs && (
                                                                         <ServiceLogs
                                                                             projectPath={project.path}
@@ -1835,25 +1883,6 @@ export default function App() {
                                                                             displayName={displayName}
                                                                             onClose={() => setActiveLogPanel(null)}
                                                                             semanticErrors={features.semanticErrors}
-                                                                        />
-                                                                    )}
-                                                                    {terminalPanelOpen && (
-                                                                        <ServiceTerminal
-                                                                            key={`${terminalPresetKey}-${autoTerminalKeys[terminalPresetKey] ?? 'manual'}`}
-                                                                            projectPath={project.path}
-                                                                            dockerContext={dockerContext}
-                                                                            profiles={composeOptions.profiles}
-                                                                            envFile={composeOptions.envFile}
-                                                                            service={service.name}
-                                                                            displayName={displayName}
-                                                                            commandPresets={terminalPresets}
-                                                                            autoCommandBatch={autoCommandBatches[terminalPresetKey]}
-                                                                            commandResults={autoCommandResults[terminalPresetKey] ?? {}}
-                                                                            onSaveCommandPreset={(name, command, autoExecute) => saveTerminalCommandPreset(project.path, service.name, name, command, autoExecute)}
-                                                                            onAutoCommandResult={(name, command, status, output) => reportAutoCommandResult(terminalPresetKey, name, command, status, output)}
-                                                                            onConsumeAutoCommandBatch={id => consumeAutoCommandBatch(terminalPresetKey, id)}
-                                                                            onRemoveCommandPreset={name => removeTerminalCommandPreset(project.path, service.name, name)}
-                                                                            onClose={() => closeAutoTerminal(terminalPresetKey)}
                                                                         />
                                                                     )}
                                                                 </div>
@@ -1896,21 +1925,42 @@ export default function App() {
                         busyPaths={dashboardBusyPaths}
                         controlsDisabled={loading}
                         activeTerminal={activeTerminalPanel}
-                        terminalCommandPresets={terminalCommandPresets}
-                        autoCommandResults={autoCommandResults}
-                        autoCommandBatches={autoCommandBatches}
                         autoTerminalKeys={autoTerminalKeys}
-                        onAutoCommandResult={reportAutoCommandResult}
-                        onConsumeAutoCommandBatch={consumeAutoCommandBatch}
                         onAction={(path, service, action) => void handleDockerAction(path, action, [service])}
                         onToggleTerminal={toggleDashboardTerminal}
                         onCloseTerminal={(path, service) => closeAutoTerminal(
                             terminalCommandPresetKey(dockerContext, path, service),
                         )}
-                        onSaveTerminalCommandPreset={saveTerminalCommandPreset}
-                        onRemoveTerminalCommandPreset={removeTerminalCommandPreset}
                         onRemoveContainers={removeDashboardContainers}
                     />
+                )}
+                {terminalSessionKeys.length > 0 && (
+                    <section className="active-terminal-sessions" aria-label="Terminais de serviços">
+                        {terminalSessionKeys.map(key => {
+                            const [context, path, service] = JSON.parse(key) as [string, string, string];
+                            const options = projectOptions[path] ?? EMPTY_COMPOSE_OPTIONS;
+                            return (
+                                <ServiceTerminal
+                                    key={key}
+                                    projectPath={path}
+                                    dockerContext={context}
+                                    profiles={options.profiles}
+                                    envFile={options.envFile}
+                                    service={service}
+                                    displayName={serviceDisplayName(serviceNames, path, service)}
+                                    commandPresets={terminalCommandPresets[key] ?? EMPTY_TERMINAL_COMMAND_PRESETS}
+                                    autoCommandBatch={autoCommandBatches[key]}
+                                    commandResults={autoCommandResults[key] ?? {}}
+                                    onSaveCommandPreset={(name, command, autoExecute) => saveTerminalCommandPreset(path, service, name, command, autoExecute)}
+                                    onAutoCommandResult={(name, command, status, output) => reportAutoCommandResult(key, name, command, status, output)}
+                                    onConsumeAutoCommandBatch={id => consumeAutoCommandBatch(key, id)}
+                                    onRemoveCommandPreset={name => removeTerminalCommandPreset(path, service, name)}
+                                    onDismissAutoCommandResult={name => dismissAutoCommandResult(key, name)}
+                                    onClose={() => closeAutoTerminal(key)}
+                                />
+                            );
+                        })}
+                    </section>
                 )}
             </div>
             {featureModalOpen && (

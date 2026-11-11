@@ -25,6 +25,7 @@ interface Props {
     onAutoCommandResult: (
         name: string, command: string, status: AutoCommandResult['status'], output: string,
     ) => void;
+    onDismissAutoCommandResult: (name: string) => void;
     onConsumeAutoCommandBatch: (id: string) => void;
     onRemoveCommandPreset: (name: string) => void;
     onClose: () => void;
@@ -33,7 +34,7 @@ interface Props {
 export default function ServiceTerminal({
     projectPath, dockerContext, profiles, envFile, service, displayName, commandPresets,
     autoCommandBatch, commandResults, onSaveCommandPreset, onAutoCommandResult,
-    onConsumeAutoCommandBatch, onRemoveCommandPreset, onClose,
+    onDismissAutoCommandResult, onConsumeAutoCommandBatch, onRemoveCommandPreset, onClose,
 }: Props) {
     const [output, setOutput] = useState('');
     const [command, setCommand] = useState('');
@@ -133,7 +134,7 @@ export default function ServiceTerminal({
             unlisteners.forEach(unlisten => unlisten());
             if (started) void stop();
         };
-    }, [projectPath, dockerContext, profiles, envFile, service]);
+    }, [projectPath, dockerContext, service]);
 
     useEffect(() => {
         if (autoScroll && outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
@@ -272,7 +273,18 @@ export default function ServiceTerminal({
                 </div>
             </div>
             <p className="dashboard-note">Shell /bin/sh sem pseudo-terminal. Os comandos são executados dentro do container.</p>
-            {error && <p className="project-error" role="alert">{error}</p>}
+            {error && (
+                <div className="project-error terminal-error" role="alert">
+                    <span>{error}</span>
+                    <button
+                        type="button"
+                        className="icon-button"
+                        aria-label={`Fechar erro do terminal de ${service}`}
+                        title="Fechar erro"
+                        onClick={() => setError('')}
+                    ><Icon name="close" size={14} /></button>
+                </div>
+            )}
             <label className="select-all terminal-auto-scroll">
                 <input type="checkbox" checked={autoScroll} onChange={event => setAutoScroll(event.target.checked)} />
                 Rolagem automática
@@ -327,7 +339,18 @@ export default function ServiceTerminal({
                                                     className={`terminal-auto-result${currentResult?.status === 'error' ? ' is-error' : ''}`}
                                                     title={currentResult?.output || undefined}
                                                     role={currentResult?.status === 'error' ? 'alert' : 'status'}
-                                                >{label}{currentResult?.status === 'error' && currentResult.output ? `: ${currentResult.output}` : ''}</span>
+                                                >
+                                                    <span>{label}{currentResult?.status === 'error' && currentResult.output ? `: ${currentResult.output}` : ''}</span>
+                                                    {currentResult && (
+                                                        <button
+                                                            type="button"
+                                                            className="icon-button"
+                                                            aria-label={`Fechar mensagem de execução automática ${preset.name}`}
+                                                            title="Fechar mensagem"
+                                                            onClick={() => onDismissAutoCommandResult(preset.name)}
+                                                        ><Icon name="close" size={12} /></button>
+                                                    )}
+                                                </span>
                                             );
                                         })()}
                                     </div>

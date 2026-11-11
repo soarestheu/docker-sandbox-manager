@@ -130,6 +130,7 @@ fn reopen_as_admin() -> Result<(), String> {
             match Command::new(terminal)
                 .arg(option)
                 .arg("sudo")
+                .arg("-b")
                 .arg("--")
                 .arg(&executable)
                 .spawn()

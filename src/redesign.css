@@ -903,10 +903,15 @@ details[open] > summary.icon-button {
 }
 
 .dashboard-service-card {
-  overflow: hidden;
+  position: relative;
+  overflow: visible;
   border: 1px solid var(--line-soft);
   border-radius: 10px;
   background: linear-gradient(110deg, rgba(19, 28, 41, 0.98), rgba(16, 24, 36, 0.98));
+}
+
+.dashboard-service-card:has(details[open]) {
+  z-index: 5;
 }
 
 .dashboard-service-heading {
@@ -945,6 +950,7 @@ details[open] > summary.icon-button {
 }
 
 .dashboard-service-actions {
+  position: relative;
   display: flex;
   flex: 0 0 auto;
   flex-wrap: wrap;

@@ -3,9 +3,8 @@ import { invoke } from '@tauri-apps/api/core';
 import type { ComposeService, Project } from './docker';
 import { isServiceActive, serviceStateLabel } from './docker';
 import Icon from './Icon';
-import ServiceTerminal, { type AutoCommandResult } from './ServiceTerminal';
-import type { ProjectComposeOptionsMap, ServiceNames, TerminalCommandPreset, TerminalCommandPresets } from './workspace';
-import { serviceDisplayName, terminalCommandPresetKey } from './workspace';
+import type { ProjectComposeOptionsMap, ServiceNames } from './workspace';
+import { serviceDisplayName } from './workspace';
 import ServiceLogs from './ServiceLogs';
 
 interface ContainerMetrics {
@@ -33,7 +32,6 @@ type DashboardAction = 'up' | 'stop' | 'unpause' | 'restart';
 
 const REFRESH_INTERVAL_MS = 10_000;
 const EMPTY_COMPOSE_OPTIONS = { profiles: [], envFile: null };
-const EMPTY_TERMINAL_COMMAND_PRESETS: TerminalCommandPreset[] = [];
 
 function metricMemoryBytes(value: string): number | null {
     const usage = value.split('/')[0]?.trim() ?? '';
@@ -62,10 +60,8 @@ function formatMemory(bytes: number | null): string {
 
 export default function Dashboard({
     projects, dockerContext, selection, projectOptions, serviceNames, metricsEnabled, semanticErrors,
-    busyPaths, controlsDisabled, activeTerminal, terminalCommandPresets, autoCommandResults,
-    autoCommandBatches, autoTerminalKeys, onAutoCommandResult, onConsumeAutoCommandBatch, onAction,
-    onToggleTerminal, onCloseTerminal, onSaveTerminalCommandPreset, onRemoveTerminalCommandPreset,
-    onRemoveContainers,
+    busyPaths, controlsDisabled, activeTerminal, autoTerminalKeys, onAction, onToggleTerminal,
+    onCloseTerminal, onRemoveContainers,
 }: {
     projects: Project[];
     dockerContext: string;
@@ -76,22 +72,11 @@ export default function Dashboard({
     semanticErrors: boolean;
     busyPaths: string[];
     controlsDisabled: boolean;
-    activeTerminal: { path: string; service: string } | null;
-    terminalCommandPresets: TerminalCommandPresets;
-    autoCommandResults: Record<string, Record<string, AutoCommandResult>>;
-    autoCommandBatches: Record<string, { id: string; commands: TerminalCommandPreset[] }>;
+    activeTerminal: { context: string; path: string; service: string } | null;
     autoTerminalKeys: Record<string, string>;
-    onAutoCommandResult: (
-        key: string, name: string, command: string, status: AutoCommandResult['status'], output: string,
-    ) => void;
-    onConsumeAutoCommandBatch: (key: string, id: string) => void;
     onAction: (path: string, service: string, action: DashboardAction) => void;
     onToggleTerminal: (path: string, service: string) => void;
     onCloseTerminal: (path: string, service: string) => void;
-    onSaveTerminalCommandPreset: (
-        path: string, service: string, name: string, command: string, autoExecute: boolean,
-    ) => void;
-    onRemoveTerminalCommandPreset: (path: string, service: string, name: string) => void;
     onRemoveContainers: (path: string, service: string, displayName: string) => void;
 }) {
     const [metrics, setMetrics] = useState<Record<string, MetricsSnapshot>>({});
@@ -242,15 +227,13 @@ export default function Dashboard({
                         const displayName = serviceDisplayName(serviceNames, project.path, service.name);
                         const snapshot = metrics[key];
                         const options = projectOptions[project.path] ?? EMPTY_COMPOSE_OPTIONS;
-                        const terminalPresets = terminalCommandPresets[
-                            terminalCommandPresetKey(dockerContext, project.path, service.name)
-                        ] ?? EMPTY_TERMINAL_COMMAND_PRESETS;
                         const active = isServiceActive(service);
                         const paused = service.state === 'paused';
                         const unhealthy = service.health === 'unhealthy' || service.state === 'dead';
                         const showLogs = logsKey === key;
-                        const showTerminal = activeTerminal?.path === project.path && activeTerminal.service === service.name;
-                        const serviceTerminalKey = terminalCommandPresetKey(dockerContext, project.path, service.name);
+                        const serviceTerminalKey = JSON.stringify([dockerContext, project.path, service.name]);
+                        const showTerminal = activeTerminal?.context === dockerContext
+                            && activeTerminal.path === project.path && activeTerminal.service === service.name;
                         const terminalOpen = showTerminal || !!autoTerminalKeys[serviceTerminalKey];
                         const busy = busyPaths.includes(project.path);
                         return (
@@ -365,8 +348,8 @@ export default function Dashboard({
                                     </div>
                                 )}
 
-                                {(showLogs || showTerminal || autoTerminalKeys[terminalCommandPresetKey(dockerContext, project.path, service.name)]) && (
-                                    <div className={`service-inspector-panels${showLogs && (showTerminal || autoTerminalKeys[terminalCommandPresetKey(dockerContext, project.path, service.name)]) ? ' is-split' : ''}`}>
+                                {showLogs && (
+                                    <div className="service-inspector-panels">
                                         {showLogs && (
                                             <ServiceLogs
                                                 projectPath={project.path}
@@ -377,30 +360,6 @@ export default function Dashboard({
                                                 displayName={displayName}
                                                 onClose={() => setLogsKey('')}
                                                 semanticErrors={semanticErrors}
-                                            />
-                                        )}
-                                        {(showTerminal || autoTerminalKeys[terminalCommandPresetKey(dockerContext, project.path, service.name)]) && (
-                                            <ServiceTerminal
-                                                key={`${terminalCommandPresetKey(dockerContext, project.path, service.name)}-${autoTerminalKeys[terminalCommandPresetKey(dockerContext, project.path, service.name)] ?? 'manual'}`}
-                                                projectPath={project.path}
-                                                dockerContext={dockerContext}
-                                                profiles={options.profiles}
-                                                envFile={options.envFile}
-                                                service={service.name}
-                                                displayName={displayName}
-                                                commandPresets={terminalPresets}
-                                                autoCommandBatch={autoCommandBatches[terminalCommandPresetKey(dockerContext, project.path, service.name)]}
-                                                commandResults={autoCommandResults[terminalCommandPresetKey(dockerContext, project.path, service.name)] ?? {}}
-                                                onSaveCommandPreset={(name, command, autoExecute) => onSaveTerminalCommandPreset(project.path, service.name, name, command, autoExecute)}
-                                                onAutoCommandResult={(name, command, status, output) => onAutoCommandResult(
-                                                    terminalCommandPresetKey(dockerContext, project.path, service.name),
-                                                    name, command, status, output,
-                                                )}
-                                                onConsumeAutoCommandBatch={id => onConsumeAutoCommandBatch(
-                                                    terminalCommandPresetKey(dockerContext, project.path, service.name), id,
-                                                )}
-                                                onRemoveCommandPreset={name => onRemoveTerminalCommandPreset(project.path, service.name, name)}
-                                                onClose={() => onCloseTerminal(project.path, service.name)}
                                             />
                                         )}
                                     </div>

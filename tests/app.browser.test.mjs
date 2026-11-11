@@ -265,6 +265,17 @@ test('service selection, scoped actions, stale polling and project stop in the b
         await evaluate('window.setServiceState("api", "exited")');
         await waitFor('window.testCalls.some(call => call.command === "send_state_notification" && call.args.title.includes("Container parado"))');
         await evaluate('window.setServiceState("api", "running")');
+        await waitFor('window.testCalls.some(call => call.command === "send_state_notification" && call.args.title.includes("Serviço recuperado"))');
+        const stoppedNotificationsBeforeManualAction = await evaluate('window.testCalls.filter(call => call.command === "send_state_notification" && call.args.title.includes("Container parado")).length');
+        await evaluate('document.querySelector(\'[aria-label="Parar serviço api de sample"]\').click()');
+        await waitFor('window.testCalls.filter(call => call.command === "run_compose_action").at(-1)?.args.action === "stop"');
+        await waitFor('document.querySelector(\'[aria-label="Iniciar serviço api de sample"]\') !== null');
+        assert.equal(
+            await evaluate('window.testCalls.filter(call => call.command === "send_state_notification" && call.args.title.includes("Container parado")).length'),
+            stoppedNotificationsBeforeManualAction,
+        );
+        await evaluate('document.querySelector(\'[aria-label="Iniciar serviço api de sample"]\').click()');
+        await waitFor('document.querySelector(\'[aria-label="Parar serviço api de sample"]\') !== null');
         await evaluate('document.querySelector(\'.topbar [aria-label="Desativar notificações"]\').click()');
         await waitFor('document.querySelector(\'.topbar [aria-label="Ativar notificações"]\') !== null');
         assert.equal(await evaluate('localStorage.getItem("sandbox-notifications")'), 'false');
@@ -314,7 +325,7 @@ test('service selection, scoped actions, stale polling and project stop in the b
         await waitFor('!document.querySelector(".project-card .lifecycle-actions button").disabled');
         await evaluate('document.querySelector(\'[aria-label="Abrir terminal de api de sample"]\').click()');
         await waitFor('document.querySelector(".terminal-panel")?.textContent.includes("Conectado")');
-        await evaluate('document.querySelector(".terminal-panel button").click()');
+        await evaluate('[...document.querySelectorAll(".terminal-panel .utility-heading button")].find(button => button.textContent === "Fechar terminal").click()');
         await waitFor('window.testCalls.some(call => call.command === "stop_service_terminal")');
         await evaluate('document.querySelector(".dependency-graph summary").click()');
         assert.equal(await evaluate('document.querySelector(".dependency-map").textContent.includes("api")'), true);
@@ -459,15 +470,26 @@ test('service selection, scoped actions, stale polling and project stop in the b
         const terminalStream = await evaluate('window.testCalls.filter(call => call.command === "start_service_terminal").at(-1).args');
         await evaluate(`window.emitTerminalOutput(${JSON.stringify(terminalStream.streamId)}, "old terminal output\\n")`);
         await waitFor('document.querySelector(".terminal-output")?.textContent.includes("old terminal output")');
+        const terminalStartsBeforeNavigation = await evaluate('window.testCalls.filter(call => call.command === "start_service_terminal").length');
+        await evaluate('[...document.querySelectorAll(".screen-switcher button")].find(button => button.textContent === "Dashboard").click()');
+        await waitFor('document.querySelector(".dashboard-screen") !== null');
+        assert.ok(await evaluate('document.querySelector(".terminal-output")?.textContent.includes("old terminal output")'));
+        assert.equal(await evaluate('window.testCalls.filter(call => call.command === "start_service_terminal").length'), terminalStartsBeforeNavigation);
+        await evaluate('[...document.querySelectorAll(".screen-switcher button")].find(button => button.textContent === "Projetos").click()');
+        await waitFor('document.querySelector(".dashboard-screen") === null');
         await evaluate('document.querySelector(\'[aria-label="Limpar terminal de db"]\').click()');
         assert.equal(await evaluate('document.querySelector(".terminal-output").textContent'), 'Digite um comando para começar.');
         assert.equal(await evaluate('document.querySelector(\'[aria-label="Recolher projeto sample · PPC"]\')?.getAttribute("aria-expanded")'), 'true');
+        await evaluate('document.querySelector(\'[aria-label="Recolher projeto sample · PPC"]\').click()');
+        await waitFor('document.querySelector(\'[aria-label="Expandir projeto sample · PPC"]\')?.getAttribute("aria-expanded") === "false"');
+        assert.ok(await evaluate('document.querySelector(".terminal-panel")'));
+        await evaluate('document.querySelector(\'[aria-label="Expandir projeto sample · PPC"]\').click()');
+        await waitFor('document.querySelector(\'[aria-label="Recolher projeto sample · PPC"]\')?.getAttribute("aria-expanded") === "true"');
         await evaluate('document.querySelector(\'[aria-label="Exibir logs de db de sample"]\').click()');
         await waitFor('window.testCalls.some(call => call.command === "start_service_logs")');
         assert.ok(await evaluate('document.querySelector(".terminal-panel")'));
         assert.ok(await evaluate('document.querySelector(".log-panel")'));
-        assert.ok(await evaluate('document.querySelector(".service-inspector-panels.is-split")'));
-        await evaluate('document.querySelector(".terminal-panel .utility-heading button").click()');
+        await evaluate('[...document.querySelectorAll(".terminal-panel .utility-heading button")].find(button => button.textContent === "Fechar terminal").click()');
         await waitFor('document.querySelector(".terminal-panel") === null');
         assert.ok(await evaluate('document.querySelector(".log-panel")'));
         assert.equal(await evaluate('document.querySelector(\'[aria-label="Recolher projeto sample · PPC"]\')?.getAttribute("aria-expanded")'), 'true');
@@ -593,7 +615,7 @@ test('service selection, scoped actions, stale polling and project stop in the b
         await evaluate('document.querySelector(\'[aria-label="Mais ações do serviço db"]\').click()');
         await evaluate('document.querySelector(\'[aria-label="Abrir terminal de db de sample"]\').click()');
         await waitFor('document.querySelector(".terminal-panel")?.textContent.includes("Conectado")');
-        assert.ok(await evaluate('document.querySelector(".service-inspector-panels.is-split")'));
+        assert.ok(await evaluate('document.querySelector(".terminal-panel")'));
         await evaluate('document.querySelector(\'[aria-label="Mais ações do serviço db"]\').click()');
         await evaluate('document.querySelector(\'[aria-label="Fechar terminal de db de sample"]\').click()');
         await evaluate('[...document.querySelectorAll(".dashboard-service-actions button")].find(button => button.textContent === "Fechar logs").click()');
@@ -677,6 +699,8 @@ test('service selection, scoped actions, stale polling and project stop in the b
         assert.ok(await evaluate('window.testCalls.some(call => call.command === "start_service_terminal" && call.args.service === "db")'));
         await waitFor('document.querySelector(".terminal-auto-result")?.textContent === "Executado"');
         assert.match(await evaluate('document.querySelector(".terminal-output").textContent'), /startup ready/);
+        await evaluate('document.querySelector(\'[aria-label="Fechar mensagem de execução automática Startup check"]\').click()');
+        await waitFor('document.querySelector(".terminal-auto-result") === null');
     } finally {
         if (socket?.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({ id: 99999, method: 'Browser.close' }));

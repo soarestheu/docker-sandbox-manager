@@ -1606,6 +1606,21 @@ input[type="checkbox"] {
   background: #080c12;
 }
 
+.active-terminal-sessions {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.terminal-error {
+  border: 1px solid rgba(245, 183, 91, 0.18);
+  border-radius: 7px;
+}
+
+.terminal-error .icon-button {
+  color: inherit;
+}
+
 @media (max-width: 760px) {
   .service-inspector-panels.is-split {
     grid-template-columns: minmax(0, 1fr);
@@ -1678,10 +1693,24 @@ input[type="checkbox"] {
 }
 
 .terminal-auto-result {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
   padding: 0 8px 4px;
   color: var(--green);
   font-size: 10px;
   overflow-wrap: anywhere;
+}
+
+.terminal-auto-result > span {
+  min-width: 0;
+}
+
+.terminal-auto-result .icon-button {
+  width: 20px;
+  height: 20px;
+  margin-top: -3px;
 }
 
 .terminal-auto-result.is-error {
