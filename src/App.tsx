@@ -1666,7 +1666,7 @@ export default function App() {
                                                             terminalCommandPresetKey(dockerContext, project.path, service.name)
                                                         ] ?? EMPTY_TERMINAL_COMMAND_PRESETS;
                                                         const terminalPresetKey = terminalCommandPresetKey(dockerContext, project.path, service.name);
-                                                        const keepAutoTerminalOpen = autoTerminalKeys[terminalPresetKey] ?? false;
+                                                        const keepAutoTerminalOpen = !!autoTerminalKeys[terminalPresetKey];
                                                         const terminalPanelOpen = showTerminal || keepAutoTerminalOpen;
                                                         const isEditingName = editingService?.path === project.path
                                                             && editingService.service === service.name;
