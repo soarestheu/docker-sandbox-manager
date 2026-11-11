@@ -5,6 +5,12 @@ import { listen } from '@tauri-apps/api/event';
 import Icon from './Icon';
 import type { TerminalCommandPreset } from './workspace';
 
+export interface AutoCommandResult {
+    command: string;
+    status: 'running' | 'success' | 'error';
+    output: string;
+}
+
 interface Props {
     projectPath: string;
     dockerContext: string;
@@ -13,14 +19,21 @@ interface Props {
     service: string;
     displayName: string;
     commandPresets: TerminalCommandPreset[];
-    onSaveCommandPreset: (name: string, command: string) => void;
+    autoCommandBatch?: { id: string; commands: TerminalCommandPreset[] };
+    commandResults: Record<string, AutoCommandResult>;
+    onSaveCommandPreset: (name: string, command: string, autoExecute: boolean) => void;
+    onAutoCommandResult: (
+        name: string, command: string, status: AutoCommandResult['status'], output: string,
+    ) => void;
+    onConsumeAutoCommandBatch: (id: string) => void;
     onRemoveCommandPreset: (name: string) => void;
     onClose: () => void;
 }
 
 export default function ServiceTerminal({
     projectPath, dockerContext, profiles, envFile, service, displayName, commandPresets,
-    onSaveCommandPreset, onRemoveCommandPreset, onClose,
+    autoCommandBatch, commandResults, onSaveCommandPreset, onAutoCommandResult,
+    onConsumeAutoCommandBatch, onRemoveCommandPreset, onClose,
 }: Props) {
     const [output, setOutput] = useState('');
     const [command, setCommand] = useState('');
@@ -29,9 +42,17 @@ export default function ServiceTerminal({
     const [sending, setSending] = useState(false);
     const [autoScroll, setAutoScroll] = useState(true);
     const [presetName, setPresetName] = useState('');
+    const [presetCommand, setPresetCommand] = useState('');
+    const [presetAutoExecute, setPresetAutoExecute] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
     const streamIdRef = useRef('');
     const outputRef = useRef<HTMLPreElement>(null);
+    const handledAutoBatchRef = useRef('');
+    const pendingAutoMarkersRef = useRef(new Map<string, {
+        resolve: (exitCode: number) => void;
+        reject: (reason: Error) => void;
+    }>());
+    const outputTailRef = useRef('');
 
     useEffect(() => {
         const streamId = crypto.randomUUID();
@@ -49,7 +70,23 @@ export default function ServiceTerminal({
                     'docker-terminal-output',
                     event => {
                         if (!disposed && event.payload.stream_id === streamId) {
-                            setOutput(previous => `${previous}${event.payload.text}`.slice(-50_000));
+                            let text = `${outputTailRef.current}${event.payload.text}`;
+                            outputTailRef.current = '';
+                            for (const [marker, pending] of pendingAutoMarkersRef.current) {
+                                const match = text.match(new RegExp(`${marker}(\\d+)__`));
+                                if (match) {
+                                    text = text.replace(match[0], '');
+                                    pendingAutoMarkersRef.current.delete(marker);
+                                    pending.resolve(Number(match[1]));
+                                }
+                            }
+                            if (pendingAutoMarkersRef.current.size) {
+                                const keep = Math.max(...[...pendingAutoMarkersRef.current.keys()].map(marker => marker.length + 8));
+                                const splitAt = Math.max(0, text.length - keep);
+                                outputTailRef.current = text.slice(splitAt);
+                                text = text.slice(0, splitAt);
+                            }
+                            if (text) setOutput(previous => `${previous}${text}`.slice(-50_000));
                         }
                     },
                 );
@@ -61,6 +98,10 @@ export default function ServiceTerminal({
                         if (!disposed && event.payload.stream_id === streamId) {
                             setStatus('Shell encerrado');
                             if (event.payload.error) setError(event.payload.error);
+                            for (const pending of pendingAutoMarkersRef.current.values()) {
+                                pending.reject(new Error(event.payload.error || 'Shell encerrado antes do comando terminar.'));
+                            }
+                            pendingAutoMarkersRef.current.clear();
                         }
                     },
                 );
@@ -85,6 +126,10 @@ export default function ServiceTerminal({
         void connect();
         return () => {
             disposed = true;
+            for (const pending of pendingAutoMarkersRef.current.values()) {
+                pending.reject(new Error('Terminal fechado antes do comando terminar.'));
+            }
+            pendingAutoMarkersRef.current.clear();
             unlisteners.forEach(unlisten => unlisten());
             if (started) void stop();
         };
@@ -94,9 +139,19 @@ export default function ServiceTerminal({
         if (autoScroll && outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }, [autoScroll, output]);
 
-    const runCommand = async (input: string, clearInput = false) => {
+    const runCommand = async (input: string, clearInput = false): Promise<{ success: boolean; error?: string }> => {
         const value = input.trim();
-        if (!value || sending || status !== 'Conectado') return;
+        if (!value) return { success: false, error: 'Informe um comando.' };
+        if (sending) {
+            const reason = 'Aguarde o envio do comando atual.';
+            setError(reason);
+            return { success: false, error: reason };
+        }
+        if (status !== 'Conectado') {
+            const reason = `Terminal indisponível: ${status}`;
+            setError(reason);
+            return { success: false, error: reason };
+        }
         setSending(true);
         setError('');
         try {
@@ -105,13 +160,82 @@ export default function ServiceTerminal({
                 input: `${value}\n`,
             });
             if (clearInput) setCommand('');
+            return { success: true };
         } catch (reason) {
-            setError(String(reason));
+            const message = String(reason);
+            setError(message);
+            return { success: false, error: message };
         } finally {
             setSending(false);
             inputRef.current?.focus();
         }
     };
+
+    const runAutomaticCommand = async (preset: TerminalCommandPreset) => {
+        const value = preset.command.trim();
+        if (status !== 'Conectado') {
+            return { success: false, error: `Terminal indisponível: ${status}` };
+        }
+        setSending(true);
+        const marker = `__DSM_EXIT_${crypto.randomUUID().replaceAll('-', '')}_`;
+        let resolveExitCode!: (exitCode: number) => void;
+        let rejectExitCode!: (reason: Error) => void;
+        const exitCodeResult = new Promise<number>((resolve, reject) => {
+            resolveExitCode = resolve;
+            rejectExitCode = reject;
+        });
+        pendingAutoMarkersRef.current.set(marker, { resolve: resolveExitCode, reject: rejectExitCode });
+        try {
+            await invoke('write_service_terminal', {
+                streamId: streamIdRef.current,
+                input: `${value}\n`,
+            });
+            await invoke('write_service_terminal', {
+                streamId: streamIdRef.current,
+                input: `printf '\\n${marker}%s__\\n' "$?"\n`,
+            });
+            const exitCode = await exitCodeResult;
+            return exitCode === 0
+                ? { success: true, error: '' }
+                : { success: false, error: `Comando encerrado com código ${exitCode}.` };
+        } catch (reason) {
+            pendingAutoMarkersRef.current.delete(marker);
+            return { success: false, error: String(reason) };
+        } finally {
+            setSending(false);
+        }
+    };
+
+    useEffect(() => {
+        const batch = autoCommandBatch;
+        if (!batch || handledAutoBatchRef.current === batch.id) return;
+        if (status === 'Conectado') {
+            handledAutoBatchRef.current = batch.id;
+            onConsumeAutoCommandBatch(batch.id);
+            void (async () => {
+                for (const preset of batch.commands) {
+                    const result = await runAutomaticCommand(preset);
+                    onAutoCommandResult(
+                        preset.name,
+                        preset.command,
+                        result.success ? 'success' : 'error',
+                        result.error ?? '',
+                    );
+                }
+            })();
+        } else if (status === 'Falha ao abrir' || status === 'Shell encerrado') {
+            handledAutoBatchRef.current = batch.id;
+            onConsumeAutoCommandBatch(batch.id);
+            for (const preset of batch.commands) {
+                onAutoCommandResult(
+                    preset.name,
+                    preset.command,
+                    'error',
+                    error || `Não foi possível executar: ${status}.`,
+                );
+            }
+        }
+    }, [autoCommandBatch, status, error, onAutoCommandResult, onConsumeAutoCommandBatch]);
 
     const sendCommand = (event: FormEvent) => {
         event.preventDefault();
@@ -121,17 +245,31 @@ export default function ServiceTerminal({
     const saveCommandPreset = (event: FormEvent) => {
         event.preventDefault();
         const name = presetName.trim();
-        const value = command.trim();
+        const value = presetCommand.trim();
         if (!name || !value) return;
-        onSaveCommandPreset(name, value);
+        onSaveCommandPreset(name, value, presetAutoExecute);
         setPresetName('');
+        setPresetCommand('');
+        setPresetAutoExecute(false);
     };
 
     return (
         <section className="terminal-panel" aria-label={`Terminal de ${displayName}`}>
             <div className="utility-heading">
                 <strong>Shell · {displayName} · {status}</strong>
-                <button className="button button-quiet" onClick={onClose}>Fechar terminal</button>
+                <div className="utility-actions">
+                    <button
+                        type="button"
+                        className="button button-quiet"
+                        aria-label={`Limpar terminal de ${service}`}
+                        disabled={!output && !error}
+                        onClick={() => {
+                            setOutput('');
+                            setError('');
+                        }}
+                    >Limpar terminal</button>
+                    <button type="button" className="button button-quiet" onClick={onClose}>Fechar terminal</button>
+                </div>
             </div>
             <p className="dashboard-note">Shell /bin/sh sem pseudo-terminal. Os comandos são executados dentro do container.</p>
             {error && <p className="project-error" role="alert">{error}</p>}
@@ -148,7 +286,10 @@ export default function ServiceTerminal({
                     className="utility-input"
                     aria-label={`Comando no terminal de ${service}`}
                     value={command}
-                    onChange={event => setCommand(event.target.value)}
+                    onChange={event => {
+                        setCommand(event.target.value);
+                        setPresetCommand(event.target.value);
+                    }}
                     disabled={status !== 'Conectado' || sending}
                     autoComplete="off"
                 />
@@ -163,17 +304,33 @@ export default function ServiceTerminal({
                         <div className="terminal-preset-list">
                             {commandPresets.map(preset => (
                                 <div className="terminal-preset-row" key={preset.name}>
-                                    <button
-                                        type="button"
-                                        className="terminal-preset-run"
-                                        aria-label={`Executar comando rápido ${preset.name} no terminal de ${service}`}
-                                        title={preset.command}
-                                        disabled={status !== 'Conectado' || sending}
-                                        onClick={() => void runCommand(preset.command)}
-                                    >
-                                        <strong>{preset.name}</strong>
-                                        <code>{preset.command}</code>
-                                    </button>
+                                    <div className="terminal-preset-details">
+                                        <button
+                                            type="button"
+                                            className="terminal-preset-run"
+                                            aria-label={`Executar comando rápido ${preset.name} no terminal de ${service}`}
+                                            title={preset.command}
+                                            disabled={preset.autoExecute}
+                                            onClick={() => void runCommand(preset.command)}
+                                        >
+                                            <strong>{preset.name}</strong>
+                                            <code>{preset.command}</code>
+                                        </button>
+                                        {preset.autoExecute && (() => {
+                                            const result = commandResults[preset.name];
+                                            const currentResult = result?.command === preset.command ? result : undefined;
+                                            const label = currentResult?.status === 'running' ? 'Executando…'
+                                                : currentResult?.status === 'success' ? 'Executado'
+                                                    : currentResult?.status === 'error' ? 'Erro ao executar' : 'Execução automática';
+                                            return (
+                                                <span
+                                                    className={`terminal-auto-result${currentResult?.status === 'error' ? ' is-error' : ''}`}
+                                                    title={currentResult?.output || undefined}
+                                                    role={currentResult?.status === 'error' ? 'alert' : 'status'}
+                                                >{label}{currentResult?.status === 'error' && currentResult.output ? `: ${currentResult.output}` : ''}</span>
+                                            );
+                                        })()}
+                                    </div>
                                     <button
                                         type="button"
                                         className="icon-button"
@@ -193,13 +350,29 @@ export default function ServiceTerminal({
                             value={presetName}
                             onChange={event => setPresetName(event.target.value)}
                         />
+                        <input
+                            className="utility-input"
+                            aria-label={`Comando a salvar para ${service}`}
+                            placeholder="Comando a salvar"
+                            value={presetCommand}
+                            onChange={event => setPresetCommand(event.target.value)}
+                        />
+                        <label className="terminal-auto-execute">
+                            <input
+                                type="checkbox"
+                                aria-label={`Executar automaticamente ${presetName.trim() || 'comando'} ao iniciar ${service}`}
+                                checked={presetAutoExecute}
+                                onChange={event => setPresetAutoExecute(event.target.checked)}
+                            />
+                            Auto executar
+                        </label>
                         <button
                             className="button button-quiet"
                             type="submit"
-                            disabled={!presetName.trim() || !command.trim()}
-                        >{commandPresets.some(preset => preset.name === presetName.trim()) ? 'Atualizar comando salvo' : 'Salvar comando atual'}</button>
+                            disabled={!presetName.trim() || !presetCommand.trim()}
+                        >{commandPresets.some(preset => preset.name === presetName.trim()) ? 'Atualizar comando' : 'Adicionar comando'}</button>
                     </form>
-                    <p className="dashboard-note">Salva o comando digitado e o associa a este serviço.</p>
+                    <p className="dashboard-note">Informe o nome, o comando e se ele deve ser executado automaticamente ao iniciar este serviço.</p>
                 </div>
             </details>
         </section>

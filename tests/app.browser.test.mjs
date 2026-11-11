@@ -51,6 +51,11 @@ function mockTauri() {
             if (listener.event === 'docker-log') callbacks.get(listener.handler)?.({ payload: { stream_id, log_line } });
         }
     };
+    window.emitTerminalOutput = (stream_id, text) => {
+        for (const listener of listeners.values()) {
+            if (listener.event === 'docker-terminal-output') callbacks.get(listener.handler)?.({ payload: { stream_id, text } });
+        }
+    };
     window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener(_event, id) { listeners.delete(id); } };
     window.__TAURI_INTERNALS__ = {
         transformCallback: callback => { callbacks.set(++nextId, callback); return nextId; },
@@ -70,8 +75,17 @@ function mockTauri() {
                 return;
             }
             if (command === 'stop_service_logs') return;
-            if (command === 'start_service_terminal' || command === 'write_service_terminal'
-                || command === 'stop_service_terminal' || command === 'remove_project_resource') return;
+            if (command === 'write_service_terminal') {
+                if (args.input.includes('__DSM_EXIT_')) {
+                    const marker = args.input.match(/(__DSM_EXIT_[a-f0-9]+_)/)?.[1];
+                    if (marker) window.emitTerminalOutput(args.streamId, `${marker}0__\n`);
+                } else if (args.input.includes('echo startup')) {
+                    window.emitTerminalOutput(args.streamId, 'startup ready\n');
+                }
+                return;
+            }
+            if (command === 'start_service_terminal' || command === 'stop_service_terminal'
+                || command === 'remove_project_resource') return;
             if (command === 'reset_idle_monitor') return;
             if (command === 'send_state_notification') return;
             if (command === 'get_docker_contexts') return [
@@ -439,8 +453,24 @@ test('service selection, scoped actions, stale polling and project stop in the b
         await waitFor('document.querySelector(".service-list").getClientRects().length > 0');
         assert.equal(await evaluate('document.querySelector(\'[aria-label="Selecionar serviço db de sample"]\').checked'), true);
         await evaluate('document.querySelector(\'[aria-label="Selecionar serviço db de sample"]\').click()');
-        await clickServiceMenuAction('db', 'Exibir logs de db de sample');
+        assert.equal(await evaluate('document.querySelector(".service-action-label")?.textContent'), 'Dashboard');
+        await evaluate('document.querySelector(\'[aria-label="Abrir terminal de db de sample"]\').click()');
+        await waitFor('document.querySelector(".terminal-panel")?.textContent.includes("Conectado")');
+        const terminalStream = await evaluate('window.testCalls.filter(call => call.command === "start_service_terminal").at(-1).args');
+        await evaluate(`window.emitTerminalOutput(${JSON.stringify(terminalStream.streamId)}, "old terminal output\\n")`);
+        await waitFor('document.querySelector(".terminal-output")?.textContent.includes("old terminal output")');
+        await evaluate('document.querySelector(\'[aria-label="Limpar terminal de db"]\').click()');
+        assert.equal(await evaluate('document.querySelector(".terminal-output").textContent'), 'Digite um comando para começar.');
+        assert.equal(await evaluate('document.querySelector(\'[aria-label="Recolher projeto sample · PPC"]\')?.getAttribute("aria-expanded")'), 'true');
+        await evaluate('document.querySelector(\'[aria-label="Exibir logs de db de sample"]\').click()');
         await waitFor('window.testCalls.some(call => call.command === "start_service_logs")');
+        assert.ok(await evaluate('document.querySelector(".terminal-panel")'));
+        assert.ok(await evaluate('document.querySelector(".log-panel")'));
+        assert.ok(await evaluate('document.querySelector(".service-inspector-panels.is-split")'));
+        await evaluate('document.querySelector(".terminal-panel .utility-heading button").click()');
+        await waitFor('document.querySelector(".terminal-panel") === null');
+        assert.ok(await evaluate('document.querySelector(".log-panel")'));
+        assert.equal(await evaluate('document.querySelector(\'[aria-label="Recolher projeto sample · PPC"]\')?.getAttribute("aria-expanded")'), 'true');
         const dbStream = await evaluate('window.testCalls.filter(call => call.command === "start_service_logs").at(-1).args');
         assert.equal(dbStream.service, 'db');
         await evaluate(`window.emitLog(${JSON.stringify(dbStream.streamId)}, "database ready"); window.emitLog("unrelated-stream", "wrong service");`);
@@ -560,6 +590,12 @@ test('service selection, scoped actions, stale polling and project stop in the b
         const stoppedLogStreamsBefore = await evaluate('window.testCalls.filter(call => call.command === "stop_service_logs").length');
         await evaluate('[...document.querySelectorAll(".dashboard-service-actions button")].find(button => button.textContent === "Exibir logs").click()');
         await waitFor('window.testCalls.some(call => call.command === "start_service_logs" && call.args.service === "db")');
+        await evaluate('document.querySelector(\'[aria-label="Mais ações do serviço db"]\').click()');
+        await evaluate('document.querySelector(\'[aria-label="Abrir terminal de db de sample"]\').click()');
+        await waitFor('document.querySelector(".terminal-panel")?.textContent.includes("Conectado")');
+        assert.ok(await evaluate('document.querySelector(".service-inspector-panels.is-split")'));
+        await evaluate('document.querySelector(\'[aria-label="Mais ações do serviço db"]\').click()');
+        await evaluate('document.querySelector(\'[aria-label="Fechar terminal de db de sample"]\').click()');
         await evaluate('[...document.querySelectorAll(".dashboard-service-actions button")].find(button => button.textContent === "Fechar logs").click()');
         await waitFor(`window.testCalls.filter(call => call.command === "stop_service_logs").length > ${stoppedLogStreamsBefore}`);
         assert.equal(await evaluate('JSON.parse(localStorage.getItem("sandbox-dashboard-selection"))[JSON.stringify(["default", "/fixture/sample"])][0]'), 'db');
@@ -603,14 +639,27 @@ test('service selection, scoped actions, stale polling and project stop in the b
         await waitFor('document.querySelector(".terminal-panel")?.textContent.includes("Conectado")');
         await input('[aria-label="Comando no terminal de db"]', 'echo healthy');
         await evaluate('document.querySelector(".terminal-presets summary").click()');
+        await evaluate('document.querySelector(".terminal-input-row button").click()');
+        await waitFor('window.testCalls.some(call => call.command === "write_service_terminal" && call.args.input === "echo healthy\\n")');
         await input('[aria-label="Nome do comando salvo para db"]', 'Health check');
-        await evaluate('[...document.querySelectorAll(".terminal-preset-form button")].find(button => button.textContent === "Salvar comando atual").click()');
+        assert.equal(await evaluate('[...document.querySelectorAll(".terminal-preset-form button")].find(button => button.textContent === "Adicionar comando").disabled'), false);
+        await evaluate('[...document.querySelectorAll(".terminal-preset-form button")].find(button => button.textContent === "Adicionar comando").click()');
         const terminalPresetKey = '["default","/fixture/sample","db"]';
         assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem("sandbox-terminal-command-presets"))[${JSON.stringify(terminalPresetKey)}]`), [
-            { name: 'Health check', command: 'echo healthy' },
+            { name: 'Health check', command: 'echo healthy', autoExecute: false },
         ]);
+        assert.equal(await evaluate('document.querySelector(\'[aria-label="Executar comando rápido Health check no terminal de db"]\').disabled'), false);
         await evaluate('document.querySelector(\'[aria-label="Executar comando rápido Health check no terminal de db"]\').click()');
         await waitFor('window.testCalls.some(call => call.command === "write_service_terminal" && call.args.input === "echo healthy\\n")');
+        await input('[aria-label="Nome do comando salvo para db"]', 'Startup check');
+        await input('[aria-label="Comando a salvar para db"]', 'echo startup');
+        await evaluate('document.querySelector(\'[aria-label="Executar automaticamente Startup check ao iniciar db"]\').click()');
+        await evaluate('[...document.querySelectorAll(".terminal-preset-form button")].find(button => button.textContent === "Adicionar comando").click()');
+        assert.deepEqual(await evaluate(`JSON.parse(localStorage.getItem("sandbox-terminal-command-presets"))[${JSON.stringify(terminalPresetKey)}]`), [
+            { name: 'Health check', command: 'echo healthy', autoExecute: false },
+            { name: 'Startup check', command: 'echo startup', autoExecute: true },
+        ]);
+        assert.equal(await evaluate('document.querySelector(\'[aria-label="Executar comando rápido Startup check no terminal de db"]\').disabled'), true);
         await evaluate('document.querySelector(\'[aria-label="Mais ações do serviço db"]\').click()');
         await evaluate('document.querySelector(\'[aria-label="Remover containers de db de sample"]\').click()');
         await waitFor('window.testCalls.filter(call => call.command === "run_compose_action").at(-1).args.action === "rm"');
@@ -621,6 +670,13 @@ test('service selection, scoped actions, stale polling and project stop in the b
         assert.match(await evaluate('window.confirmCalls.at(-1)'), /Volumes não serão removidos/);
         await waitFor('document.querySelector(".terminal-panel") === null');
         await waitFor('window.testCalls.some(call => call.command === "stop_service_terminal")');
+        await evaluate('[...document.querySelectorAll(".screen-switcher button")].find(button => button.textContent === "Projetos").click()');
+        await waitFor('document.querySelector(".dashboard-screen") === null');
+        await evaluate('document.querySelector(\'[aria-label="Iniciar serviço db de sample"]\').click()');
+        await waitFor('window.testCalls.some(call => call.command === "write_service_terminal" && call.args.input === "echo startup\\n")');
+        assert.ok(await evaluate('window.testCalls.some(call => call.command === "start_service_terminal" && call.args.service === "db")'));
+        await waitFor('document.querySelector(".terminal-auto-result")?.textContent === "Executado"');
+        assert.match(await evaluate('document.querySelector(".terminal-output").textContent'), /startup ready/);
     } finally {
         if (socket?.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({ id: 99999, method: 'Browser.close' }));

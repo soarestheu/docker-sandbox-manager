@@ -11,7 +11,7 @@ import { useUpdater } from './useUpdater';
 import Dashboard from './Dashboard';
 import ServiceLogs from './ServiceLogs';
 import ServiceMetrics from './ServiceMetrics';
-import ServiceTerminal from './ServiceTerminal';
+import ServiceTerminal, { type AutoCommandResult } from './ServiceTerminal';
 import {
     DEFAULT_IDE, IDE_CHOICES, dashboardSelectionKey, defaultFeatureFlags, parseDashboardSelection,
     parseFeatureFlags, parsePreferredIDE, parsePreferences,
@@ -22,7 +22,7 @@ import {
 } from './workspace';
 import type {
     DashboardSelection, FeatureFlags, PreferredIDE, Preferences, ProjectComposeOptions, ProjectComposeOptionsMap, ServicePreset,
-    ServiceNames, ServicePresets, ServiceSort, StatusFilter, TerminalCommandPresets,
+    ServiceNames, ServicePresets, ServiceSort, StatusFilter, TerminalCommandPreset, TerminalCommandPresets,
 } from './workspace';
 
 interface PendingAction {
@@ -97,6 +97,13 @@ export default function App() {
     const [projectOptions, setProjectOptions] = useState<ProjectComposeOptionsMap>({});
     const [servicePresets, setServicePresets] = useState<ServicePresets>({});
     const [terminalCommandPresets, setTerminalCommandPresets] = useState<TerminalCommandPresets>({});
+    const [autoCommandResults, setAutoCommandResults] = useState<Record<string, Record<string, AutoCommandResult>>>({});
+    const [autoCommandBatches, setAutoCommandBatches] = useState<
+        Record<string, { id: string; commands: TerminalCommandPreset[] }>
+    >({});
+    const [autoTerminalKeys, setAutoTerminalKeys] = useState<Record<string, string>>({});
+    const autoCommandRunRef = useRef(new Set<string>());
+    const autoCommandSequenceRef = useRef(0);
     const [serviceNames, setServiceNames] = useState<ServiceNames>({});
     const [editingService, setEditingService] = useState<{ path: string; service: string } | null>(null);
     const [serviceNameDraft, setServiceNameDraft] = useState('');
@@ -327,6 +334,16 @@ export default function App() {
         const previousProject = projectsRef.current.find(project => project.path === path);
         for (const service of state.services) {
             const previous = previousProject?.services.find(item => item.name === service.name);
+            const serviceKey = terminalCommandPresetKey(dockerContext, path, service.name);
+            if (service.running_containers === 0) {
+                autoCommandRunRef.current.delete(serviceKey);
+            } else if (previous && previous.running_containers === 0
+                && !autoCommandRunRef.current.has(serviceKey)) {
+                autoCommandRunRef.current.add(serviceKey);
+                void executeAutomaticCommands(path, [service.name]);
+            } else if (!previous && service.running_containers > 0) {
+                autoCommandRunRef.current.add(serviceKey);
+            }
             if (!previous || !notificationRef.current) continue;
             const wasFailed = previous.health === 'unhealthy' || previous.state === 'dead';
             const isFailed = service.health === 'unhealthy' || service.state === 'dead';
@@ -631,6 +648,12 @@ export default function App() {
 
     const handleDockerAction = async (path: string, action: ComposeAction, services?: string[]) => {
         const error = await performAction(path, action, services);
+        if (!error && (action === 'restart' || action === 'recreate')) {
+            const serviceNames = services
+                ?? projectsRef.current.find(project => project.path === path)?.services.map(service => service.name)
+                ?? [];
+            void executeAutomaticCommands(path, serviceNames);
+        }
         const successMessages: Record<ComposeAction, string> = {
             up: `${services ? 'Serviços selecionados' : 'Projeto'} iniciado`,
             up_with_deps: 'Serviços e dependências iniciados',
@@ -649,7 +672,6 @@ export default function App() {
     const toggleDashboardTerminal = (path: string, service: string) => {
         setActiveTerminalPanel(current => current?.path === path && current.service === service
             ? null : { path, service });
-        setActiveLogPanel(null);
         setActiveMetrics(null);
     };
 
@@ -699,11 +721,13 @@ export default function App() {
         }
     };
 
-    const saveTerminalCommandPreset = (path: string, service: string, name: string, command: string) => {
+    const saveTerminalCommandPreset = (
+        path: string, service: string, name: string, command: string, autoExecute: boolean,
+    ) => {
         const key = terminalCommandPresetKey(dockerContext, path, service);
         const presets = [
             ...(terminalCommandPresets[key] ?? []).filter(preset => preset.name !== name),
-            { name, command },
+            { name, command, autoExecute },
         ].sort((a, b) => a.name.localeCompare(b.name));
         const next = { ...terminalCommandPresets, [key]: presets };
         try {
@@ -713,6 +737,76 @@ export default function App() {
         } catch (err) {
             setMessage(`Erro ao salvar preset de comando: ${err}`);
         }
+    };
+
+    const executeAutomaticCommands = (path: string, services: string[]) => {
+        let openedTerminal = false;
+        for (const service of services) {
+            const key = terminalCommandPresetKey(dockerContext, path, service);
+            const commands = (terminalCommandPresets[key] ?? []).filter(preset => preset.autoExecute);
+            if (!commands.length) continue;
+            openedTerminal = true;
+            const id = `${Date.now()}-${++autoCommandSequenceRef.current}`;
+            setAutoCommandResults(previous => ({
+                ...previous,
+                [key]: {
+                    ...previous[key],
+                    ...Object.fromEntries(commands.map(preset => [
+                        preset.name, { command: preset.command, status: 'running' as const, output: '' },
+                    ])),
+                },
+            }));
+            setAutoCommandBatches(previous => ({ ...previous, [key]: { id, commands } }));
+            setAutoTerminalKeys(previous => ({ ...previous, [key]: id }));
+            setExpandedProjects(previous => ({ ...previous, [path]: true }));
+        }
+        if (openedTerminal) {
+            setQuery('');
+            setStatusFilter('all');
+            setFavoritesOnly(false);
+            setGroupFilter('');
+            setScreen('projects');
+        }
+    };
+
+    const reportAutoCommandResult = (
+        key: string, name: string, command: string, status: AutoCommandResult['status'], output: string,
+    ) => {
+        setAutoCommandResults(previous => ({
+            ...previous,
+            [key]: { ...previous[key], [name]: { command, status, output } },
+        }));
+    };
+
+    const consumeAutoCommandBatch = (key: string, id: string) => {
+        setAutoCommandBatches(previous => {
+            if (previous[key]?.id !== id) return previous;
+            const next = { ...previous };
+            delete next[key];
+            return next;
+        });
+    };
+
+    const closeAutoTerminal = (key: string) => {
+        const batch = autoCommandBatches[key];
+        if (batch) {
+            for (const preset of batch.commands) {
+                reportAutoCommandResult(
+                    key, preset.name, preset.command, 'error', 'Terminal fechado antes do comando terminar.',
+                );
+            }
+        }
+        setAutoTerminalKeys(previous => {
+            const next = { ...previous };
+            delete next[key];
+            return next;
+        });
+        setAutoCommandBatches(previous => {
+            const next = { ...previous };
+            delete next[key];
+            return next;
+        });
+        setActiveTerminalPanel(null);
     };
 
     const removeTerminalCommandPreset = (path: string, service: string, name: string) => {
@@ -1571,6 +1665,9 @@ export default function App() {
                                                         const terminalPresets = terminalCommandPresets[
                                                             terminalCommandPresetKey(dockerContext, project.path, service.name)
                                                         ] ?? EMPTY_TERMINAL_COMMAND_PRESETS;
+                                                        const terminalPresetKey = terminalCommandPresetKey(dockerContext, project.path, service.name);
+                                                        const keepAutoTerminalOpen = autoTerminalKeys[terminalPresetKey] ?? false;
+                                                        const terminalPanelOpen = showTerminal || keepAutoTerminalOpen;
                                                         const isEditingName = editingService?.path === project.path
                                                             && editingService.service === service.name;
                                                         return (
@@ -1640,29 +1737,42 @@ export default function App() {
                                                                     </div>}
                                                                 </div>
                                                                 <div className="service-actions">
+                                                                <span className="service-action-label">Dashboard</span>
                                                                 <button
                                                                     type="button"
                                                                     className="feature-switch dashboard-monitor-switch"
                                                                     role="switch"
                                                                     aria-checked={dashboardTracked}
                                                                     aria-label={`Acompanhar serviço ${service.name} de ${project.name} no Dashboard`}
-                                                                    title={dashboardTracked ? 'Remover do Dashboard' : 'Acompanhar no Dashboard'}
+                                                                    title={dashboardTracked ? 'Remover do Dashboard' : 'Adicionar ao Dashboard'}
                                                                     onClick={() => toggleDashboardService(project.path, service.name)}
                                                                 ><span className="feature-switch-thumb" /></button>
                                                                 <button
                                                                     type="button"
-                                                                    className={`icon-button service-terminal-toggle${showTerminal ? ' is-active' : ''}`}
-                                                                    aria-label={`${showTerminal ? 'Fechar' : 'Abrir'} terminal de ${service.name} de ${project.name}`}
-                                                                    title={showTerminal ? 'Fechar terminal' : 'Terminal'}
-                                                                    aria-expanded={showTerminal}
+                                                                    className={`icon-button service-terminal-toggle${terminalPanelOpen ? ' is-active' : ''}`}
+                                                                    aria-label={`${terminalPanelOpen ? 'Fechar' : 'Abrir'} terminal de ${service.name} de ${project.name}`}
+                                                                    title={terminalPanelOpen ? 'Fechar terminal' : 'Terminal'}
+                                                                    aria-expanded={terminalPanelOpen}
                                                                     disabled={!service.running_containers || !!project.error || controlsDisabled}
                                                                     onClick={() => {
-                                                                        const next = showTerminal ? null : { path: project.path, service: service.name };
-                                                                        setActiveTerminalPanel(next);
-                                                                        setActiveLogPanel(null);
-                                                                        setActiveMetrics(null);
+                                                                        if (terminalPanelOpen) closeAutoTerminal(terminalPresetKey);
+                                                                        else {
+                                                                            setActiveTerminalPanel({ path: project.path, service: service.name });
+                                                                            setActiveMetrics(null);
+                                                                        }
                                                                     }}
                                                                 ><Icon name="terminal" /></button>
+                                                                <button
+                                                                    type="button"
+                                                                    className={`icon-button${showLogs ? ' is-active' : ''}`}
+                                                                    aria-label={`${showLogs ? 'Fechar' : 'Exibir'} logs de ${service.name} de ${project.name}`}
+                                                                    title={showLogs ? 'Fechar logs' : 'Exibir logs'}
+                                                                    aria-expanded={showLogs}
+                                                                    onClick={() => {
+                                                                        setActiveLogPanel(showLogs ? null : { path: project.path, service: service.name });
+                                                                        setActiveMetrics(null);
+                                                                    }}
+                                                                ><Icon name="logs" /></button>
                                                                 <details className="popover menu service-tools-menu">
                                                                     <summary className="icon-button" aria-label={`Mais ações do serviço ${service.name}`} title="Mais ações"><Icon name="more" /></summary>
                                                                     <div className="popover-panel">
@@ -1713,31 +1823,40 @@ export default function App() {
                                                                 ><Icon name={active && !paused ? 'stop' : 'play'} size={13} />{serviceBusyLabel || (paused ? 'Retomar' : active ? 'Parar' : 'Iniciar')}</button>
                                                                 </div>
                                                             </div>
-                                                            {showLogs && isExpanded && (
-                                                                <ServiceLogs
-                                                                    projectPath={project.path}
-                                                                    dockerContext={dockerContext}
-                                                                    profiles={composeOptions.profiles}
-                                                                    envFile={composeOptions.envFile}
-                                                                    service={service.name}
-                                                                    displayName={displayName}
-                                                                    onClose={() => setActiveLogPanel(null)}
-                                                                    semanticErrors={features.semanticErrors}
-                                                                />
-                                                            )}
-                                                            {showTerminal && isExpanded && (
-                                                                <ServiceTerminal
-                                                                    projectPath={project.path}
-                                                                    dockerContext={dockerContext}
-                                                                    profiles={composeOptions.profiles}
-                                                                    envFile={composeOptions.envFile}
-                                                                    service={service.name}
-                                                                    displayName={displayName}
-                                                                    commandPresets={terminalPresets}
-                                                                    onSaveCommandPreset={(name, command) => saveTerminalCommandPreset(project.path, service.name, name, command)}
-                                                                    onRemoveCommandPreset={name => removeTerminalCommandPreset(project.path, service.name, name)}
-                                                                    onClose={() => setActiveTerminalPanel(null)}
-                                                                />
+                                                            {(showLogs || terminalPanelOpen) && isExpanded && (
+                                                                <div className={`service-inspector-panels${showLogs && terminalPanelOpen ? ' is-split' : ''}`}>
+                                                                    {showLogs && (
+                                                                        <ServiceLogs
+                                                                            projectPath={project.path}
+                                                                            dockerContext={dockerContext}
+                                                                            profiles={composeOptions.profiles}
+                                                                            envFile={composeOptions.envFile}
+                                                                            service={service.name}
+                                                                            displayName={displayName}
+                                                                            onClose={() => setActiveLogPanel(null)}
+                                                                            semanticErrors={features.semanticErrors}
+                                                                        />
+                                                                    )}
+                                                                    {terminalPanelOpen && (
+                                                                        <ServiceTerminal
+                                                                            key={`${terminalPresetKey}-${autoTerminalKeys[terminalPresetKey] ?? 'manual'}`}
+                                                                            projectPath={project.path}
+                                                                            dockerContext={dockerContext}
+                                                                            profiles={composeOptions.profiles}
+                                                                            envFile={composeOptions.envFile}
+                                                                            service={service.name}
+                                                                            displayName={displayName}
+                                                                            commandPresets={terminalPresets}
+                                                                            autoCommandBatch={autoCommandBatches[terminalPresetKey]}
+                                                                            commandResults={autoCommandResults[terminalPresetKey] ?? {}}
+                                                                            onSaveCommandPreset={(name, command, autoExecute) => saveTerminalCommandPreset(project.path, service.name, name, command, autoExecute)}
+                                                                            onAutoCommandResult={(name, command, status, output) => reportAutoCommandResult(terminalPresetKey, name, command, status, output)}
+                                                                            onConsumeAutoCommandBatch={id => consumeAutoCommandBatch(terminalPresetKey, id)}
+                                                                            onRemoveCommandPreset={name => removeTerminalCommandPreset(project.path, service.name, name)}
+                                                                            onClose={() => closeAutoTerminal(terminalPresetKey)}
+                                                                        />
+                                                                    )}
+                                                                </div>
                                                             )}
                                                             {showMetrics && isExpanded && hasContainerDetails && (
                                                                 <ServiceMetrics
@@ -1778,9 +1897,16 @@ export default function App() {
                         controlsDisabled={loading}
                         activeTerminal={activeTerminalPanel}
                         terminalCommandPresets={terminalCommandPresets}
+                        autoCommandResults={autoCommandResults}
+                        autoCommandBatches={autoCommandBatches}
+                        autoTerminalKeys={autoTerminalKeys}
+                        onAutoCommandResult={reportAutoCommandResult}
+                        onConsumeAutoCommandBatch={consumeAutoCommandBatch}
                         onAction={(path, service, action) => void handleDockerAction(path, action, [service])}
                         onToggleTerminal={toggleDashboardTerminal}
-                        onCloseTerminal={() => setActiveTerminalPanel(null)}
+                        onCloseTerminal={(path, service) => closeAutoTerminal(
+                            terminalCommandPresetKey(dockerContext, path, service),
+                        )}
                         onSaveTerminalCommandPreset={saveTerminalCommandPreset}
                         onRemoveTerminalCommandPreset={removeTerminalCommandPreset}
                         onRemoveContainers={removeDashboardContainers}

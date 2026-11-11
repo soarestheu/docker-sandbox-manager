@@ -44,6 +44,7 @@ export type ServicePresets = Record<string, ServicePreset[]>;
 export interface TerminalCommandPreset {
     name: string;
     command: string;
+    autoExecute: boolean;
 }
 export type TerminalCommandPresets = Record<string, TerminalCommandPreset[]>;
 export const MAX_RECENT_WORKSPACES = 8;
@@ -251,7 +252,14 @@ export function parseTerminalCommandPresets(raw: string | null): TerminalCommand
                 || typeof entry.command !== 'string' || !entry.command.trim()) {
                 throw new Error('Predefinições de comandos inválidas.');
             }
-            return { name: entry.name.trim(), command: entry.command.trim() };
+            if (entry.autoExecute !== undefined && typeof entry.autoExecute !== 'boolean') {
+                throw new Error('Predefinições de comandos inválidas.');
+            }
+            return {
+                name: entry.name.trim(),
+                command: entry.command.trim(),
+                autoExecute: entry.autoExecute === true,
+            };
         });
     }
     return presets;

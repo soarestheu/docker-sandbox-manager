@@ -1538,6 +1538,21 @@ input[type="checkbox"] {
   background: #0b111b;
 }
 
+.service-inspector-panels {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+
+.service-inspector-panels.is-split {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.service-inspector-panels > * {
+  min-width: 0;
+}
+
 .log-header {
   min-height: 39px;
   display: flex;
@@ -1589,6 +1604,12 @@ input[type="checkbox"] {
   border: 1px solid var(--line);
   border-radius: 0 0 10px 10px;
   background: #080c12;
+}
+
+@media (max-width: 760px) {
+  .service-inspector-panels.is-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .terminal-output {
@@ -1649,6 +1670,24 @@ input[type="checkbox"] {
   min-width: 0;
 }
 
+.terminal-preset-details {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.terminal-auto-result {
+  padding: 0 8px 4px;
+  color: var(--green);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.terminal-auto-result.is-error {
+  color: var(--red, #ff8b8b);
+}
+
 .terminal-preset-run {
   min-width: 0;
   flex: 1;
@@ -1687,6 +1726,20 @@ input[type="checkbox"] {
 .terminal-preset-form input {
   min-width: 120px;
   flex: 1;
+}
+
+.terminal-auto-execute {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-subtle);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.terminal-auto-execute input {
+  min-width: 0;
+  flex: none;
 }
 
 .log-line {

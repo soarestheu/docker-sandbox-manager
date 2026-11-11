@@ -94,6 +94,26 @@ fn set_close_to_tray(state: tauri::State<'_, CloseToTray>, enabled: bool) {
     state.0.store(enabled, Ordering::Relaxed);
 }
 
+fn set_tray_visible(app: &tauri::AppHandle, visible: bool) {
+    if let Some(tray) = app.tray_by_id("main") {
+        if let Err(err) = tray.set_visible(visible) {
+            eprintln!("Erro ao atualizar o ícone da bandeja: {err}");
+        }
+    }
+}
+
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        match window.show() {
+            Ok(()) => set_tray_visible(app, false),
+            Err(err) => eprintln!("Erro ao exibir a janela: {err}"),
+        }
+        if let Err(err) = window.set_focus() {
+            eprintln!("Erro ao focar a janela: {err}");
+        }
+    }
+}
+
 #[tauri::command]
 fn reopen_as_admin() -> Result<(), String> {
     #[cfg(target_os = "linux")]
@@ -349,14 +369,7 @@ async fn diagnose_project(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
-            if let Some(window) = app.get_webview_window("main") {
-                if let Err(err) = window.show() {
-                    eprintln!("Erro ao exibir a janela: {err}");
-                }
-                if let Err(err) = window.set_focus() {
-                    eprintln!("Erro ao focar a janela: {err}");
-                }
-            }
+            show_main_window(app)
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -376,20 +389,11 @@ pub fn run() {
                 .default_window_icon()
                 .cloned()
                 .ok_or("Ícone padrão do aplicativo não encontrado")?;
-            TrayIconBuilder::new()
+            TrayIconBuilder::with_id("main")
                 .icon(icon)
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id().as_ref() {
-                    "show" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            if let Err(err) = window.show() {
-                                eprintln!("Erro ao exibir a janela: {err}");
-                            }
-                            if let Err(err) = window.set_focus() {
-                                eprintln!("Erro ao focar a janela: {err}");
-                            }
-                        }
-                    }
+                    "show" => show_main_window(app),
                     "quit" => app.exit(0),
                     _ => {}
                 })
@@ -402,23 +406,18 @@ pub fn run() {
                             ..
                         }
                     ) {
-                        if let Some(window) = tray.app_handle().get_webview_window("main") {
-                            if let Err(err) = window.show() {
-                                eprintln!("Erro ao exibir a janela: {err}");
-                            }
-                            if let Err(err) = window.set_focus() {
-                                eprintln!("Erro ao focar a janela: {err}");
-                            }
-                        }
+                        show_main_window(&tray.app_handle());
                     }
                 })
-                .build(app)?;
+                .build(app)?
+                .set_visible(false)?;
             Ok(())
         })
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => {
                 if window.state::<CloseToTray>().0.load(Ordering::Relaxed) {
                     api.prevent_close();
+                    set_tray_visible(&window.app_handle(), true);
                     if let Err(err) = window.hide() {
                         eprintln!("Erro ao minimizar a janela para a bandeja: {err}");
                     }

@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { ComposeService, Project } from './docker';
 import { isServiceActive, serviceStateLabel } from './docker';
 import Icon from './Icon';
-import ServiceTerminal from './ServiceTerminal';
+import ServiceTerminal, { type AutoCommandResult } from './ServiceTerminal';
 import type { ProjectComposeOptionsMap, ServiceNames, TerminalCommandPreset, TerminalCommandPresets } from './workspace';
 import { serviceDisplayName, terminalCommandPresetKey } from './workspace';
 import ServiceLogs from './ServiceLogs';
@@ -62,7 +62,8 @@ function formatMemory(bytes: number | null): string {
 
 export default function Dashboard({
     projects, dockerContext, selection, projectOptions, serviceNames, metricsEnabled, semanticErrors,
-    busyPaths, controlsDisabled, activeTerminal, terminalCommandPresets, onAction,
+    busyPaths, controlsDisabled, activeTerminal, terminalCommandPresets, autoCommandResults,
+    autoCommandBatches, autoTerminalKeys, onAutoCommandResult, onConsumeAutoCommandBatch, onAction,
     onToggleTerminal, onCloseTerminal, onSaveTerminalCommandPreset, onRemoveTerminalCommandPreset,
     onRemoveContainers,
 }: {
@@ -77,10 +78,19 @@ export default function Dashboard({
     controlsDisabled: boolean;
     activeTerminal: { path: string; service: string } | null;
     terminalCommandPresets: TerminalCommandPresets;
+    autoCommandResults: Record<string, Record<string, AutoCommandResult>>;
+    autoCommandBatches: Record<string, { id: string; commands: TerminalCommandPreset[] }>;
+    autoTerminalKeys: Record<string, string>;
+    onAutoCommandResult: (
+        key: string, name: string, command: string, status: AutoCommandResult['status'], output: string,
+    ) => void;
+    onConsumeAutoCommandBatch: (key: string, id: string) => void;
     onAction: (path: string, service: string, action: DashboardAction) => void;
     onToggleTerminal: (path: string, service: string) => void;
-    onCloseTerminal: () => void;
-    onSaveTerminalCommandPreset: (path: string, service: string, name: string, command: string) => void;
+    onCloseTerminal: (path: string, service: string) => void;
+    onSaveTerminalCommandPreset: (
+        path: string, service: string, name: string, command: string, autoExecute: boolean,
+    ) => void;
     onRemoveTerminalCommandPreset: (path: string, service: string, name: string) => void;
     onRemoveContainers: (path: string, service: string, displayName: string) => void;
 }) {
@@ -240,6 +250,8 @@ export default function Dashboard({
                         const unhealthy = service.health === 'unhealthy' || service.state === 'dead';
                         const showLogs = logsKey === key;
                         const showTerminal = activeTerminal?.path === project.path && activeTerminal.service === service.name;
+                        const serviceTerminalKey = terminalCommandPresetKey(dockerContext, project.path, service.name);
+                        const terminalOpen = showTerminal || !!autoTerminalKeys[serviceTerminalKey];
                         const busy = busyPaths.includes(project.path);
                         return (
                             <article className="dashboard-service-card" key={key}>
@@ -281,7 +293,6 @@ export default function Dashboard({
                                             className={`button ${showLogs ? 'button-subtle' : 'button-quiet'}`}
                                             aria-expanded={showLogs}
                                             onClick={() => {
-                                                if (showTerminal) onCloseTerminal();
                                                 setLogsKey(showLogs ? '' : key);
                                             }}
                                         >{showLogs ? 'Fechar logs' : 'Exibir logs'}</button>
@@ -299,14 +310,14 @@ export default function Dashboard({
                                                 ><Icon name="restart" />Reiniciar</button>
                                                 <button
                                                     className="menu-item"
-                                                    aria-label={`${showTerminal ? 'Fechar' : 'Abrir'} terminal de ${service.name} de ${project.name}`}
+                                                    aria-label={`${terminalOpen ? 'Fechar' : 'Abrir'} terminal de ${service.name} de ${project.name}`}
                                                     disabled={!service.running_containers || controlsDisabled || busy || !!project.error}
                                                     onClick={event => {
                                                         event.currentTarget.closest('details')?.removeAttribute('open');
-                                                        setLogsKey('');
-                                                        onToggleTerminal(project.path, service.name);
+                                                        if (autoTerminalKeys[serviceTerminalKey]) onCloseTerminal(project.path, service.name);
+                                                        else onToggleTerminal(project.path, service.name);
                                                     }}
-                                                ><Icon name="terminal" />{showTerminal ? 'Fechar terminal' : 'Abrir terminal'}</button>
+                                                ><Icon name="terminal" />{terminalOpen ? 'Fechar terminal' : 'Abrir terminal'}</button>
                                                 <button
                                                     className="menu-item danger"
                                                     aria-label={`Remover containers de ${service.name} de ${project.name}`}
@@ -322,20 +333,6 @@ export default function Dashboard({
                                 </div>
 
                                 {project.error && <p className="project-error" role="alert">{project.error}</p>}
-                                {showTerminal && (
-                                    <ServiceTerminal
-                                        projectPath={project.path}
-                                        dockerContext={dockerContext}
-                                        profiles={options.profiles}
-                                        envFile={options.envFile}
-                                        service={service.name}
-                                        displayName={displayName}
-                                        commandPresets={terminalPresets}
-                                        onSaveCommandPreset={(name, command) => onSaveTerminalCommandPreset(project.path, service.name, name, command)}
-                                        onRemoveCommandPreset={name => onRemoveTerminalCommandPreset(project.path, service.name, name)}
-                                        onClose={onCloseTerminal}
-                                    />
-                                )}
                                 {metricsEnabled && (
                                     <div className="dashboard-metrics">
                                         {snapshot?.error && <p className="project-error" role="alert">Falha ao consultar métricas: {snapshot.error}</p>}
@@ -368,17 +365,45 @@ export default function Dashboard({
                                     </div>
                                 )}
 
-                                {showLogs && (
-                                    <ServiceLogs
-                                        projectPath={project.path}
-                                        dockerContext={dockerContext}
-                                        profiles={options.profiles}
-                                        envFile={options.envFile}
-                                        service={service.name}
-                                        displayName={displayName}
-                                        onClose={() => setLogsKey('')}
-                                        semanticErrors={semanticErrors}
-                                    />
+                                {(showLogs || showTerminal || autoTerminalKeys[terminalCommandPresetKey(dockerContext, project.path, service.name)]) && (
+                                    <div className={`service-inspector-panels${showLogs && (showTerminal || autoTerminalKeys[terminalCommandPresetKey(dockerContext, project.path, service.name)]) ? ' is-split' : ''}`}>
+                                        {showLogs && (
+                                            <ServiceLogs
+                                                projectPath={project.path}
+                                                dockerContext={dockerContext}
+                                                profiles={options.profiles}
+                                                envFile={options.envFile}
+                                                service={service.name}
+                                                displayName={displayName}
+                                                onClose={() => setLogsKey('')}
+                                                semanticErrors={semanticErrors}
+                                            />
+                                        )}
+                                        {(showTerminal || autoTerminalKeys[terminalCommandPresetKey(dockerContext, project.path, service.name)]) && (
+                                            <ServiceTerminal
+                                                key={`${terminalCommandPresetKey(dockerContext, project.path, service.name)}-${autoTerminalKeys[terminalCommandPresetKey(dockerContext, project.path, service.name)] ?? 'manual'}`}
+                                                projectPath={project.path}
+                                                dockerContext={dockerContext}
+                                                profiles={options.profiles}
+                                                envFile={options.envFile}
+                                                service={service.name}
+                                                displayName={displayName}
+                                                commandPresets={terminalPresets}
+                                                autoCommandBatch={autoCommandBatches[terminalCommandPresetKey(dockerContext, project.path, service.name)]}
+                                                commandResults={autoCommandResults[terminalCommandPresetKey(dockerContext, project.path, service.name)] ?? {}}
+                                                onSaveCommandPreset={(name, command, autoExecute) => onSaveTerminalCommandPreset(project.path, service.name, name, command, autoExecute)}
+                                                onAutoCommandResult={(name, command, status, output) => onAutoCommandResult(
+                                                    terminalCommandPresetKey(dockerContext, project.path, service.name),
+                                                    name, command, status, output,
+                                                )}
+                                                onConsumeAutoCommandBatch={id => onConsumeAutoCommandBatch(
+                                                    terminalCommandPresetKey(dockerContext, project.path, service.name), id,
+                                                )}
+                                                onRemoveCommandPreset={name => onRemoveTerminalCommandPreset(project.path, service.name, name)}
+                                                onClose={() => onCloseTerminal(project.path, service.name)}
+                                            />
+                                        )}
+                                    </div>
                                 )}
                             </article>
                         );

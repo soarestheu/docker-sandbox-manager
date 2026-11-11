@@ -126,9 +126,15 @@ test('service presets roundtrip and reject empty or malformed selections', () =>
 
 test('terminal command presets are scoped by context, project and service', () => {
     const key = terminalCommandPresetKey('default', '/projects/sample', 'api');
-    const presets = { [key]: [{ name: 'Health check', command: 'curl localhost/health' }] };
+    const presets = { [key]: [{ name: 'Health check', command: 'curl localhost/health', autoExecute: false }] };
     assert.equal(key, '["default","/projects/sample","api"]');
     assert.deepEqual(parseTerminalCommandPresets(JSON.stringify(presets)), presets);
+    assert.deepEqual(parseTerminalCommandPresets(JSON.stringify({
+        [key]: [{ name: 'Startup check', command: 'echo ready', autoExecute: true }],
+    }))[key], [{ name: 'Startup check', command: 'echo ready', autoExecute: true }]);
+    assert.deepEqual(parseTerminalCommandPresets(JSON.stringify({
+        [key]: [{ name: 'Legacy', command: 'echo old' }],
+    }))[key], [{ name: 'Legacy', command: 'echo old', autoExecute: false }]);
     assert.deepEqual(parseTerminalCommandPresets(null), {});
     for (const raw of ['bad json', '[]', '{"api":[{"name":"","command":"ls"}]}', '{"api":[{"name":"List","command":" "}]}']) {
         assert.throws(() => parseTerminalCommandPresets(raw));

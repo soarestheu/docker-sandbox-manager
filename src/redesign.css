@@ -592,6 +592,12 @@ details[open] > summary.icon-button {
   gap: 4px;
 }
 
+.service-action-label {
+  color: var(--text-subtle);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
 .service-actions .button {
   min-width: 84px;
   min-height: 30px;
