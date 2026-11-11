@@ -37,6 +37,10 @@
   gap: 8px;
 }
 
+.update-check-button {
+  white-space: nowrap;
+}
+
 .topbar-divider {
   width: 1px;
   height: 20px;
@@ -335,14 +339,14 @@ details[open] > summary.icon-button {
 /* ---------- Cards de projeto ---------- */
 
 .project-list {
-  gap: 8px;
+  gap: var(--space-1);
 }
 
 .project-card {
   position: relative;
   overflow: visible;
   border-radius: 12px;
-  background: var(--surface);
+  background: var(--bg-surface);
 }
 
 .project-card:has(details[open]) {
@@ -355,9 +359,9 @@ details[open] > summary.icon-button {
 }
 
 .project-main {
-  min-height: 60px;
-  gap: 10px;
-  padding: 10px 12px 10px 14px;
+  min-height: 80px;
+  gap: var(--space-2);
+  padding: var(--space-2);
 }
 
 .project-select {
@@ -380,7 +384,7 @@ details[open] > summary.icon-button {
 }
 
 .project-title-row {
-  gap: 8px;
+  gap: var(--space-1);
 }
 
 .project-title-row h3 {
@@ -411,19 +415,20 @@ details[open] > summary.icon-button {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px 10px;
+  gap: var(--space-1) var(--space-2);
   min-height: 18px;
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
   color: var(--text-muted);
   font-size: 12px;
 }
 
 .mini-port {
-  padding: 1px 6px;
+  padding: var(--space-1);
   border-radius: 5px;
   background: rgba(85, 214, 160, 0.1);
   color: #7fdcb5;
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-family: "JetBrains Mono", monospace;
+  font-variant-numeric: tabular-nums;
   font-size: 11px;
 }
 
@@ -435,12 +440,42 @@ details[open] > summary.icon-button {
 }
 
 .project-actions {
-  gap: 4px;
+  gap: var(--space-1);
 }
 
-.project-actions .button {
-  min-height: 32px;
-  font-size: 12px;
+.action-icon-button {
+  width: 32px;
+  height: 32px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+
+.action-icon-button.is-start {
+  border-color: rgba(85, 214, 160, 0.23);
+  background: rgba(85, 214, 160, 0.1);
+  color: #79dcb2;
+}
+
+.action-icon-button.is-start:hover:not(:disabled) {
+  background: rgba(85, 214, 160, 0.18);
+}
+
+.action-icon-button.is-danger {
+  border-color: rgba(255, 116, 128, 0.22);
+  background: rgba(255, 116, 128, 0.09);
+  color: #f08a94;
+}
+
+.action-icon-button.is-danger:hover:not(:disabled) {
+  background: rgba(255, 116, 128, 0.16);
+}
+
+.action-spinner {
+  animation: action-spin 900ms linear infinite;
+}
+
+@keyframes action-spin {
+  to { transform: rotate(360deg); }
 }
 
 .button-start,
@@ -477,7 +512,7 @@ details[open] > summary.icon-button {
 }
 
 .project-details {
-  padding: 12px 14px 14px;
+  padding: var(--space-2);
   background: transparent;
 }
 
@@ -488,12 +523,13 @@ details[open] > summary.icon-button {
 }
 
 .services-heading {
-  margin-bottom: 6px;
+  margin-bottom: var(--space-1);
 }
 
 .services-toolbar {
-  min-height: 32px;
-  margin: 8px 0;
+  min-height: 40px;
+  gap: var(--space-1);
+  margin: var(--space-1) 0;
 }
 
 .services-toolbar .select-all {
@@ -512,12 +548,14 @@ details[open] > summary.icon-button {
 /* ---------- Serviços ---------- */
 
 .service-list {
-  border-radius: 10px;
+  border-radius: 8px;
 }
 
 .service-row {
-  gap: 10px;
-  padding: 9px 10px 9px 12px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
   background: transparent;
 }
 
@@ -531,7 +569,7 @@ details[open] > summary.icon-button {
 
 .service-title {
   justify-content: flex-start;
-  gap: 4px 10px;
+  gap: var(--space-1) var(--space-2);
   margin-bottom: 0;
 }
 
@@ -581,15 +619,21 @@ details[open] > summary.icon-button {
   padding: 0;
   border: 0;
   background: none;
+  font-family: "JetBrains Mono", monospace;
   font-size: 11px;
   font-weight: 500;
+}
+
+.project-title-row .status-pill {
+  font-family: "JetBrains Mono", monospace;
+  font-variant-numeric: tabular-nums;
 }
 
 .service-actions {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .service-action-label {
@@ -598,25 +642,22 @@ details[open] > summary.icon-button {
   white-space: nowrap;
 }
 
-.service-actions .button {
-  min-width: 84px;
-  min-height: 30px;
-  margin-left: 6px;
-  font-size: 12px;
-}
-
 .port-list {
-  gap: 6px;
-  margin-top: 6px;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
 }
 
 .port-chip {
   flex-wrap: nowrap;
-  gap: 6px;
-  min-height: 24px;
-  padding: 2px 4px 2px 8px;
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  gap: var(--space-1);
+  min-height: 32px;
+  padding: var(--space-1);
   font-size: 11px;
+}
+
+.port-chip .port-value {
+  font-family: "JetBrains Mono", monospace;
+  font-variant-numeric: tabular-nums;
 }
 
 .port-action {
@@ -653,15 +694,15 @@ details[open] > summary.icon-button {
     flex-direction: row;
     align-items: center;
     flex-wrap: wrap;
-    margin: 0 -22px;
-    padding: 8px 22px;
+    margin: 0 -24px;
+    padding: 8px 24px;
   }
 }
 
 @media (max-width: 640px) {
   .topbar {
-    margin: 0 -14px;
-    padding: 8px 14px;
+    margin: 0 -16px;
+    padding: 8px 16px;
   }
 
   .context-label,
@@ -678,16 +719,19 @@ details[open] > summary.icon-button {
   }
 
   .service-row {
-    flex-wrap: wrap;
+    grid-template-columns: 24px minmax(0, 1fr);
   }
 
   .service-info {
-    flex-basis: calc(100% - 40px);
+    grid-column: 2;
+    flex: initial;
   }
 
   .service-actions {
-    width: 100%;
-    justify-content: flex-end;
+    grid-column: 2;
+    width: auto;
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .selection-bar {
@@ -700,11 +744,31 @@ details[open] > summary.icon-button {
   }
 }
 
+@container (max-width: 660px) {
+  .service-row {
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+
+  .service-info {
+    grid-column: 2;
+  }
+
+  .service-actions {
+    grid-column: 2;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .expand-toggle .icon,
   .chip,
   .icon-button {
     transition: none;
+  }
+
+  .action-spinner {
+    animation: none;
   }
 }
 
@@ -720,7 +784,19 @@ details[open] > summary.icon-button {
 }
 
 :root[data-theme="light"] .project-card {
-  background: #fff;
+  background: var(--bg-surface);
+}
+
+:root[data-theme="light"] .action-icon-button.is-start {
+  border-color: rgba(23, 136, 94, 0.35);
+  background: rgba(23, 136, 94, 0.1);
+  color: #0f6b48;
+}
+
+:root[data-theme="light"] .action-icon-button.is-danger {
+  border-color: rgba(179, 38, 30, 0.35);
+  background: rgba(220, 70, 60, 0.08);
+  color: #b3261e;
 }
 
 :root[data-theme="light"] .project-title-row h3 {
@@ -728,6 +804,7 @@ details[open] > summary.icon-button {
 }
 
 :root[data-theme="light"] .status-online,
+:root[data-theme="light"] .status-up,
 :root[data-theme="light"] .button-start,
 :root[data-theme="light"] .port-open,
 :root[data-theme="light"] .mini-port {
@@ -737,11 +814,18 @@ details[open] > summary.icon-button {
 }
 
 :root[data-theme="light"] .status-stopped,
+:root[data-theme="light"] .status-warn,
 :root[data-theme="light"] .port-pending,
 :root[data-theme="light"] .summary-warning {
   color: #8a5a00;
   border-color: rgba(176, 116, 10, 0.35);
   background: rgba(214, 150, 30, 0.12);
+}
+
+:root[data-theme="light"] .status-down {
+  color: #a1323b;
+  border-color: rgba(177, 52, 62, 0.3);
+  background: rgba(207, 63, 74, 0.09);
 }
 
 :root[data-theme="light"] .summary-warning {
@@ -886,6 +970,63 @@ details[open] > summary.icon-button {
 .dashboard-overview-card small {
   color: var(--text-subtle);
   font-size: 9px;
+}
+
+.dashboard-kpi {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 126px;
+  gap: 9px;
+  padding: 15px 17px;
+  border-radius: 12px;
+}
+
+.dashboard-kpi-heading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.dashboard-kpi-icon {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--kpi-color) 25%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--kpi-color) 10%, transparent);
+  color: var(--kpi-color);
+}
+
+.dashboard-kpi-cpu {
+  --kpi-color: #9bb9ff;
+}
+
+.dashboard-kpi-memory {
+  --kpi-color: #83dcb6;
+}
+
+.dashboard-kpi-ports {
+  --kpi-color: #85cce0;
+}
+
+.dashboard-kpi strong {
+  grid-column: 2;
+  grid-row: 1;
+  font-size: 27px;
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+}
+
+.dashboard-kpi small {
+  grid-column: 1 / -1;
+  max-width: 38ch;
+  font-size: 10px;
+  line-height: 1.4;
 }
 
 .dashboard-information {

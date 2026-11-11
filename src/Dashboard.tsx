@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { ComposeService, Project } from './docker';
-import { isServiceActive, serviceStateLabel } from './docker';
+import { displayPorts, isServiceActive, serviceStateLabel } from './docker';
 import Icon from './Icon';
 import type { ProjectComposeOptionsMap, ServiceNames } from './workspace';
 import { serviceDisplayName } from './workspace';
@@ -56,6 +56,11 @@ function formatMemory(bytes: number | null): string {
     if (bytes === null) return '—';
     const value = bytes / 1_048_576;
     return value >= 1_024 ? `${(value / 1_024).toFixed(1)} GiB` : `${value.toFixed(1)} MiB`;
+}
+
+function metricPercent(value: string): number | null {
+    const parsed = Number.parseFloat(value.replace(/%$/, '').trim());
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
 export default function Dashboard({
@@ -160,12 +165,16 @@ export default function Dashboard({
         };
     }, [monitorKey, metricsEnabled, windowVisible, revision]);
 
-    const runningContainers = selectedServices.reduce(
-        (total, item) => total + item.service.running_containers, 0,
-    );
     const servicesWithLiveMetrics = selectedServices.filter(({ service }) =>
         service.running_containers > 0 && service.state !== 'paused',
     );
+    const cpuValues = servicesWithLiveMetrics.flatMap(item =>
+        (metrics[item.key]?.containers ?? [])
+            .map(container => metricPercent(container.cpu))
+            .filter((value): value is number => value !== null),
+    );
+    const cpuPercent = cpuValues.reduce((total, value) => total + value, 0);
+    const hasCpuReading = metricsEnabled && cpuValues.length > 0;
     const memoryBytes = servicesWithLiveMetrics.reduce((total, item) =>
         total + (metrics[item.key]?.containers ?? []).reduce(
             (sum, container) => sum + (metricMemoryBytes(container.memory_usage) ?? 0), 0,
@@ -174,7 +183,12 @@ export default function Dashboard({
     const hasMemoryReading = metricsEnabled && servicesWithLiveMetrics.some(item =>
         (metrics[item.key]?.containers ?? []).some(container => metricMemoryBytes(container.memory_usage) !== null),
     );
-    const selectedCount = selectedServices.length;
+    const activePorts = selectedServices.reduce((total, { service }) => {
+        if (service.running_containers === 0 || service.state === 'paused') return total;
+        return total + displayPorts(service.ports).filter(port =>
+            port.protocol === 'tcp' && port.is_open === true,
+        ).length;
+    }, 0);
 
     return (
         <section className="dashboard-screen" aria-label="Dashboard de serviços">
@@ -192,18 +206,31 @@ export default function Dashboard({
             </header>
 
             <div className="dashboard-overview" aria-label="Resumo dos serviços selecionados">
-                <article className="dashboard-overview-card">
-                    <span>Serviços fixados</span>
-                    <strong>{selectedCount}</strong>
+                <article className="dashboard-overview-card dashboard-kpi dashboard-kpi-cpu">
+                    <div className="dashboard-kpi-heading">
+                        <span className="dashboard-kpi-icon"><Icon name="cpu" size={18} /></span>
+                        <span>CPU</span>
+                    </div>
+                    <strong>{hasCpuReading ? `${cpuPercent.toFixed(1)}%` : '—'}</strong>
+                    <small title="A soma do uso dos containers pode ultrapassar 100%.">
+                        {hasCpuReading ? `Soma de ${cpuValues.length} leituras de containers ativos` : 'Aguardando leitura de métricas'}
+                    </small>
                 </article>
-                <article className="dashboard-overview-card">
-                    <span>Containers ativos</span>
-                    <strong>{runningContainers}</strong>
-                </article>
-                <article className="dashboard-overview-card">
-                    <span>Memória reportada</span>
+                <article className="dashboard-overview-card dashboard-kpi dashboard-kpi-memory">
+                    <div className="dashboard-kpi-heading">
+                        <span className="dashboard-kpi-icon"><Icon name="memory" size={18} /></span>
+                        <span>Memória</span>
+                    </div>
                     <strong>{hasMemoryReading ? formatMemory(memoryBytes) : '—'}</strong>
                     <small>Soma aproximada dos containers selecionados</small>
+                </article>
+                <article className="dashboard-overview-card dashboard-kpi dashboard-kpi-ports">
+                    <div className="dashboard-kpi-heading">
+                        <span className="dashboard-kpi-icon"><Icon name="network" size={18} /></span>
+                        <span>Portas ativas</span>
+                    </div>
+                    <strong>{activePorts}</strong>
+                    <small>Portas TCP confirmadas como abertas</small>
                 </article>
             </div>
 
@@ -230,6 +257,11 @@ export default function Dashboard({
                         const active = isServiceActive(service);
                         const paused = service.state === 'paused';
                         const unhealthy = service.health === 'unhealthy' || service.state === 'dead';
+                        const warning = !unhealthy && (
+                            service.health === 'starting'
+                            || ['paused', 'partial', 'restarting'].includes(service.state)
+                        );
+                        const statusTone = unhealthy ? 'status-down' : warning ? 'status-warn' : active ? 'status-up' : 'status-down';
                         const showLogs = logsKey === key;
                         const serviceTerminalKey = JSON.stringify([dockerContext, project.path, service.name]);
                         const showTerminal = activeTerminal?.context === dockerContext
@@ -242,7 +274,7 @@ export default function Dashboard({
                                     <div className="dashboard-service-title">
                                         <p>{project.name}</p>
                                         <h2>{displayName}</h2>
-                                        <span className={`status-pill ${active && !unhealthy ? 'status-online' : 'status-stopped'}`}>
+                                        <span className={`status-pill ${statusTone}`}>
                                             <span className="status-dot" />{serviceStateLabel(service)}
                                         </span>
                                         <small>{service.running_containers}/{service.containers} containers ativos</small>

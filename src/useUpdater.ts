@@ -5,24 +5,49 @@ const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 export type UpdaterState =
     | { status: 'idle' }
+    | { status: 'checking' }
+    | { status: 'current' }
     | { status: 'available'; version: string; notes: string }
     | { status: 'downloading'; version: string; progress: number | null }
-    | { status: 'error'; message: string };
+    | { status: 'error'; message: string; action: 'check' | 'install' };
 
 export function useUpdater() {
     const [state, setState] = useState<UpdaterState>({ status: 'idle' });
     const [dismissed, setDismissed] = useState(false);
     const updateRef = useRef<Update | null>(null);
+    const checkPromiseRef = useRef<Promise<Update | null> | null>(null);
 
-    const check = useCallback(async () => {
+    const check = useCallback(async (manual = false) => {
+        if (manual) {
+            setDismissed(false);
+            setState({ status: 'checking' });
+        }
+        let pendingCheck = checkPromiseRef.current;
         try {
-            const { check } = await import('@tauri-apps/plugin-updater');
-            const update = await check();
-            if (!update) return;
-            updateRef.current = update;
-            setState(current => current.status === 'downloading' ? current : { status: 'available', version: update.version, notes: update.body ?? '' });
-        } catch {
-            // Sem rede, endpoint indisponível ou fora do Tauri: ignora silenciosamente.
+            if (!pendingCheck) {
+                pendingCheck = import('@tauri-apps/plugin-updater')
+                    .then(({ check: checkForUpdate }) => checkForUpdate());
+                checkPromiseRef.current = pendingCheck;
+            }
+            const update = await pendingCheck;
+            if (update) {
+                updateRef.current = update;
+                setDismissed(false);
+                setState(current => current.status === 'downloading'
+                    ? current
+                    : { status: 'available', version: update.version, notes: update.body ?? '' });
+            } else if (manual) {
+                updateRef.current = null;
+                setState({ status: 'current' });
+            }
+        } catch (error) {
+            if (manual) {
+                setState({ status: 'error', message: String(error), action: 'check' });
+            }
+        } finally {
+            if (pendingCheck && checkPromiseRef.current === pendingCheck) {
+                checkPromiseRef.current = null;
+            }
         }
     }, []);
 
@@ -49,9 +74,9 @@ export function useUpdater() {
             const { relaunch } = await import('@tauri-apps/plugin-process');
             await relaunch();
         } catch (error) {
-            setState({ status: 'error', message: String(error) });
+            setState({ status: 'error', message: String(error), action: 'install' });
         }
     }, []);
 
-    return { state, dismissed, dismiss: () => setDismissed(true), install };
+    return { state, dismissed, check, dismiss: () => setDismissed(true), install };
 }

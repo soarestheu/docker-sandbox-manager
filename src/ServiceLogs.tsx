@@ -99,7 +99,13 @@ export default function ServiceLogs({
             <div className="log-header">
                 <div><span>{displayName}</span><span>· {status}</span></div>
                 <div>
-                    <button className="button button-log-clear" onClick={() => setLines([])}>Limpar logs</button>
+                    <button
+                        className="button button-log-clear"
+                        aria-label={`Limpar logs de ${service}`}
+                        title="Limpar logs recebidos"
+                        disabled={lines.length === 0}
+                        onClick={() => setLines([])}
+                    >Limpar</button>
                     <button className="button button-log-clear" onClick={onClose}>Fechar logs</button>
                 </div>
             </div>
@@ -120,7 +126,12 @@ export default function ServiceLogs({
             </div>
             {exportMessage && <p className="utility-feedback" role="status">{exportMessage}</p>}
             {error && <div className="project-error" role="alert">{error}</div>}
-            <div className="log-output" ref={outputRef}>
+            <div
+                className="log-output"
+                ref={outputRef}
+                tabIndex={0}
+                aria-label={`Saída dos logs de ${service}`}
+            >
                 {visibleLines.length === 0 ? (
                     <p className="log-empty">{lines.length ? 'Nenhuma linha corresponde aos filtros.' : 'Nenhum log recebido deste serviço.'}</p>
                 ) : visibleLines.map((line, index) => (

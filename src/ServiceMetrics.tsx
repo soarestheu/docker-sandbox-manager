@@ -54,6 +54,12 @@ function historyKey(projectPath: string, context: string, service: string, conta
     return JSON.stringify([projectPath, context, service, container]);
 }
 
+function containerStateTone(state: string): 'status-up' | 'status-down' | 'status-warn' {
+    if (state === 'running') return 'status-up';
+    if (state === 'paused' || state === 'restarting') return 'status-warn';
+    return 'status-down';
+}
+
 function chartPoints(samples: MetricSample[], field: 'cpu' | 'memory'): string {
     const recent = samples.slice(-30);
     return recent.map((sample, index) => {
@@ -239,7 +245,12 @@ export default function ServiceMetrics({
                     {metrics.some(metric =>
                         metricValue(metric.cpu) >= thresholds.cpu
                         || metricValue(metric.memory_percent) >= thresholds.memory,
-                    ) && <p className="metric-warning" role="alert">Um container ultrapassou o limite de CPU ou memória.</p>}
+                    ) && (
+                        <p className="metric-warning status-warn" role="alert">
+                            <span className="status-dot" aria-hidden="true" />
+                            Um container ultrapassou o limite de CPU ou memória.
+                        </p>
+                    )}
                 </>
             )}
             {(error || storageError) && <p className="project-error" role="alert">{error || storageError}</p>}
@@ -256,7 +267,17 @@ export default function ServiceMetrics({
                         return <dl key={metric.name} className="metric-card">
                             <div><dt>Container</dt><dd>{metric.name}</dd></div>
                             {features.containerId && <div><dt>ID</dt><dd className="container-id">{metric.id}</dd></div>}
-                            {features.state && <div><dt>Estado</dt><dd>{metric.state}</dd></div>}
+                            {features.state && (
+                                <div>
+                                    <dt>Estado</dt>
+                                    <dd>
+                                        <span className={`status-pill ${containerStateTone(metric.state)}`}>
+                                            <span className="status-dot" />
+                                            {metric.state}
+                                        </span>
+                                    </dd>
+                                </div>
+                            )}
                             {features.metrics && <div><dt>CPU</dt><dd>{metric.cpu}</dd></div>}
                             {features.metrics && <div><dt>Memória</dt><dd>{metric.memory_usage} ({metric.memory_percent})</dd></div>}
                             {features.metrics && <div><dt>Rede</dt><dd>{metric.network_io || 'Sem dados'}</dd></div>}

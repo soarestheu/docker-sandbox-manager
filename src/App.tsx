@@ -4,6 +4,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openDirectoryDialog } from '@tauri-apps/plugin-dialog';
 import { isPermissionGranted, requestPermission } from '@tauri-apps/plugin-notification';
+import { LoaderCircle, Play, RefreshCw, Square } from 'lucide-react';
 import { displayPorts, isProjectActive, isServiceActive, portStateLabel, serviceStateLabel } from './docker';
 import type { Project, ProjectState } from './docker';
 import Icon from './Icon';
@@ -1028,6 +1029,50 @@ export default function App() {
             )]
             : []),
     ])];
+    const inlineTerminalKeys = new Set<string>();
+    if (screen === 'projects') {
+        for (const project of visibleProjects) {
+            if (!expandedProjects[project.path]) continue;
+            const names = serviceNames[project.path] ?? {};
+            const displayName = projectDisplayName(
+                project.name,
+                preferences[project.path]?.alias ?? '',
+                preferences[project.path]?.aliasPosition ?? 'prefix',
+            );
+            const projectServices = sortServices(
+                servicesForFilter(project, query, statusFilter, names, displayName),
+                serviceSort,
+            );
+            for (const service of projectServices) {
+                const key = terminalCommandPresetKey(dockerContext, project.path, service.name);
+                if (terminalSessionKeys.includes(key)) inlineTerminalKeys.add(key);
+            }
+        }
+    }
+    const renderTerminalSession = (key: string) => {
+        const [context, path, service] = JSON.parse(key) as [string, string, string];
+        const options = projectOptions[path] ?? EMPTY_COMPOSE_OPTIONS;
+        return (
+            <ServiceTerminal
+                key={key}
+                projectPath={path}
+                dockerContext={context}
+                profiles={options.profiles}
+                envFile={options.envFile}
+                service={service}
+                displayName={serviceDisplayName(serviceNames, path, service)}
+                commandPresets={terminalCommandPresets[key] ?? EMPTY_TERMINAL_COMMAND_PRESETS}
+                autoCommandBatch={autoCommandBatches[key]}
+                commandResults={autoCommandResults[key] ?? {}}
+                onSaveCommandPreset={(name, command, autoExecute) => saveTerminalCommandPreset(path, service, name, command, autoExecute)}
+                onAutoCommandResult={(name, command, status, output) => reportAutoCommandResult(key, name, command, status, output)}
+                onConsumeAutoCommandBatch={id => consumeAutoCommandBatch(key, id)}
+                onRemoveCommandPreset={name => removeTerminalCommandPreset(path, service, name)}
+                onDismissAutoCommandResult={name => dismissAutoCommandResult(key, name)}
+                onClose={() => closeAutoTerminal(key)}
+            />
+        );
+    };
 
     return (
         <main className="app-shell">
@@ -1131,6 +1176,17 @@ export default function App() {
                             >Dashboard</button>
                         </div>
                         <span className="topbar-divider" aria-hidden="true" />
+                        <button
+                            type="button"
+                            className="button button-quiet update-check-button"
+                            onClick={() => void updater.check(true)}
+                            disabled={updater.state.status === 'checking' || updater.state.status === 'downloading'}
+                        >
+                            {updater.state.status === 'checking'
+                                ? <LoaderCircle className="action-spinner" size={14} aria-hidden="true" />
+                                : <RefreshCw size={14} aria-hidden="true" />}
+                            {updater.state.status === 'checking' ? 'Verificando…' : 'Verificar atualizações'}
+                        </button>
                         {adminStatus === false && (
                             <button
                                 className="button button-quiet admin-relaunch"
@@ -1168,6 +1224,9 @@ export default function App() {
 
                 {updater.state.status !== 'idle' && !(updater.dismissed && updater.state.status !== 'downloading') && (
                     <div className="update-banner" role="status">
+                        {updater.state.status === 'checking' && (
+                            <span>Verificando atualizações…</span>
+                        )}
                         {updater.state.status === 'available' && (
                             <>
                                 <span>Nova versão <strong>{updater.state.version}</strong> disponível.</span>
@@ -1178,9 +1237,20 @@ export default function App() {
                         {updater.state.status === 'downloading' && (
                             <span>Baixando {updater.state.version}{updater.state.progress !== null ? ` — ${updater.state.progress}%` : '…'}</span>
                         )}
+                        {updater.state.status === 'current' && (
+                            <>
+                                <span>O aplicativo está atualizado.</span>
+                                <button
+                                    className="icon-button"
+                                    onClick={updater.dismiss}
+                                    aria-label="Dispensar confirmação de atualização"
+                                    title="Fechar"
+                                ><Icon name="close" /></button>
+                            </>
+                        )}
                         {updater.state.status === 'error' && (
                             <>
-                                <span>Falha ao atualizar: {updater.state.message}</span>
+                                <span>{updater.state.action === 'check' ? 'Falha ao verificar atualizações' : 'Falha ao atualizar'}: {updater.state.message}</span>
                                 <button
                                     className="icon-button"
                                     onClick={updater.dismiss}
@@ -1327,6 +1397,9 @@ export default function App() {
                                 const selection = (selectedServices[project.path] || []).filter(name => visibleServices.some(service => service.name === name));
                                 const busy = busyPaths[project.path];
                                 const projectBusyLabel = busy?.services === null ? busy.label : undefined;
+                                const projectActionLabel = projectBusyLabel ?? (isRunning
+                                    ? `Parar e remover todos os containers do projeto ${projectName}`
+                                    : `Iniciar projeto ${projectName}`);
                                 const controlsDisabled = loading || !!busy;
                                 const selectedItems = project.services.filter(service => selection.includes(service.name));
                                 const activeServiceCount = project.services.filter(isServiceActive).length;
@@ -1377,11 +1450,20 @@ export default function App() {
                                                 </p>
                                             </div>
                                             <div className="project-actions">
-                                                {isRunning ? (
-                                                    <button className="button button-danger" disabled={controlsDisabled} onClick={() => handleDockerAction(project.path, 'down')} title="Parar e remover todos os containers do projeto"><Icon name="stop" size={14} />{projectBusyLabel || 'Parar'}</button>
-                                                ) : (
-                                                    <button className="button button-start" disabled={controlsDisabled} onClick={() => handleDockerAction(project.path, 'up')}><Icon name="play" size={14} />{projectBusyLabel || 'Iniciar'}</button>
-                                                )}
+                                                <button
+                                                    type="button"
+                                                    className={`icon-button action-icon-button ${isRunning ? 'is-danger' : 'is-start'}`}
+                                                    disabled={controlsDisabled}
+                                                    aria-label={projectActionLabel}
+                                                    title={projectActionLabel}
+                                                    onClick={() => handleDockerAction(project.path, isRunning ? 'down' : 'up')}
+                                                >
+                                                    {projectBusyLabel
+                                                        ? <LoaderCircle className="action-spinner" size={16} aria-hidden="true" />
+                                                        : isRunning
+                                                            ? <Square size={16} strokeWidth={1.8} aria-hidden="true" />
+                                                            : <Play size={16} strokeWidth={1.8} aria-hidden="true" />}
+                                                </button>
                                                 <details className="popover menu">
                                                     <summary className="icon-button" aria-label={`Mais ações de ${projectName}`} title="Mais ações"><Icon name="more" /></summary>
                                                     <div
@@ -1714,6 +1796,7 @@ export default function App() {
                                                         const terminalPresetKey = terminalCommandPresetKey(dockerContext, project.path, service.name);
                                                         const keepAutoTerminalOpen = !!autoTerminalKeys[terminalPresetKey];
                                                         const terminalPanelOpen = showTerminal || keepAutoTerminalOpen;
+                                                        const serviceActionLabel = `${paused ? 'Retomar' : active ? 'Parar' : 'Iniciar'} serviço ${service.name} de ${project.name}`;
                                                         const isEditingName = editingService?.path === project.path
                                                             && editingService.service === service.name;
                                                         return (
@@ -1772,7 +1855,7 @@ export default function App() {
                                                                                 title={`Host ${port.host_ips.join(', ')} · ${port.published} → container ${port.target}/${port.protocol} · ${portStateLabel(service, port)}`}
                                                                             >
                                                                                 <span className="port-dot" />
-                                                                                <span>{port.published} → {port.target}{port.protocol === 'tcp' ? '' : `/${port.protocol}`}</span>
+                                                                                <span className="port-value">{port.published} → {port.target}{port.protocol === 'tcp' ? '' : `/${port.protocol}`}</span>
                                                                                 <span className="sr-only">{portStateLabel(service, port)}</span>
                                                                                 <button className="port-action" aria-label={`Copiar endereço ${portAddress(port)} de ${service.name}`} title="Copiar endereço" onClick={() => copyPort(portAddress(port))}><Icon name="copy" size={13} /></button>
                                                                                 {port.protocol === 'tcp' && (
@@ -1864,15 +1947,24 @@ export default function App() {
                                                                     </div>
                                                                 </details>
                                                                 <button
-                                                                    className={`button ${active && !paused ? 'button-danger' : 'button-start'}`}
+                                                                    type="button"
+                                                                    className={`icon-button action-icon-button ${active && !paused ? 'is-danger' : 'is-start'}`}
                                                                     disabled={controlsDisabled || !!project.error}
-                                                                    aria-label={`${paused ? 'Retomar' : active ? 'Parar' : 'Iniciar'} serviço ${service.name} de ${project.name}`}
+                                                                    aria-label={serviceActionLabel}
+                                                                    title={serviceBusyLabel || serviceActionLabel}
+                                                                    aria-busy={!!serviceBusyLabel}
                                                                     onClick={() => handleDockerAction(project.path, paused ? 'unpause' : active ? 'stop' : 'up', [service.name])}
-                                                                ><Icon name={active && !paused ? 'stop' : 'play'} size={13} />{serviceBusyLabel || (paused ? 'Retomar' : active ? 'Parar' : 'Iniciar')}</button>
+                                                                >
+                                                                    {serviceBusyLabel
+                                                                        ? <LoaderCircle className="action-spinner" size={16} aria-hidden="true" />
+                                                                        : active && !paused
+                                                                            ? <Square size={16} strokeWidth={1.8} aria-hidden="true" />
+                                                                            : <Play size={16} strokeWidth={1.8} aria-hidden="true" />}
+                                                                </button>
                                                                 </div>
                                                             </div>
-                                                            {showLogs && isExpanded && (
-                                                                <div className="service-inspector-panels">
+                                                            {(showLogs || terminalPanelOpen) && isExpanded && (
+                                                                <div className={`service-inspector-panels${showLogs && terminalPanelOpen ? ' is-split' : ''}`}>
                                                                     {showLogs && (
                                                                         <ServiceLogs
                                                                             projectPath={project.path}
@@ -1885,6 +1977,7 @@ export default function App() {
                                                                             semanticErrors={features.semanticErrors}
                                                                         />
                                                                     )}
+                                                                    {terminalPanelOpen && renderTerminalSession(terminalPresetKey)}
                                                                 </div>
                                                             )}
                                                             {showMetrics && isExpanded && hasContainerDetails && (
@@ -1934,32 +2027,11 @@ export default function App() {
                         onRemoveContainers={removeDashboardContainers}
                     />
                 )}
-                {terminalSessionKeys.length > 0 && (
+                {terminalSessionKeys.some(key => !inlineTerminalKeys.has(key)) && (
                     <section className="active-terminal-sessions" aria-label="Terminais de serviços">
-                        {terminalSessionKeys.map(key => {
-                            const [context, path, service] = JSON.parse(key) as [string, string, string];
-                            const options = projectOptions[path] ?? EMPTY_COMPOSE_OPTIONS;
-                            return (
-                                <ServiceTerminal
-                                    key={key}
-                                    projectPath={path}
-                                    dockerContext={context}
-                                    profiles={options.profiles}
-                                    envFile={options.envFile}
-                                    service={service}
-                                    displayName={serviceDisplayName(serviceNames, path, service)}
-                                    commandPresets={terminalCommandPresets[key] ?? EMPTY_TERMINAL_COMMAND_PRESETS}
-                                    autoCommandBatch={autoCommandBatches[key]}
-                                    commandResults={autoCommandResults[key] ?? {}}
-                                    onSaveCommandPreset={(name, command, autoExecute) => saveTerminalCommandPreset(path, service, name, command, autoExecute)}
-                                    onAutoCommandResult={(name, command, status, output) => reportAutoCommandResult(key, name, command, status, output)}
-                                    onConsumeAutoCommandBatch={id => consumeAutoCommandBatch(key, id)}
-                                    onRemoveCommandPreset={name => removeTerminalCommandPreset(path, service, name)}
-                                    onDismissAutoCommandResult={name => dismissAutoCommandResult(key, name)}
-                                    onClose={() => closeAutoTerminal(key)}
-                                />
-                            );
-                        })}
+                        {terminalSessionKeys
+                            .filter(key => !inlineTerminalKeys.has(key))
+                            .map(renderTerminalSession)}
                     </section>
                 )}
             </div>
