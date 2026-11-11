@@ -177,7 +177,7 @@ export default function ServiceTerminal({
             return { success: false, error: `Terminal indisponível: ${status}` };
         }
         setSending(true);
-        const marker = `__DSM_EXIT_${crypto.randomUUID().replaceAll('-', '')}_`;
+        const marker = `__DSM_EXIT_${crypto.randomUUID().replace(/-/g, '')}_`;
         let resolveExitCode!: (exitCode: number) => void;
         let rejectExitCode!: (reason: Error) => void;
         const exitCodeResult = new Promise<number>((resolve, reject) => {
