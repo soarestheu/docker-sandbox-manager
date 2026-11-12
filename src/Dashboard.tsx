@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import type ApexCharts from 'apexcharts';
 import { MoreVertical, Play, RotateCw, Shell, Square } from 'lucide-react';
 import type { ComposeService, Project } from './docker';
 import { displayPorts, isServiceActive, serviceStateLabel } from './docker';
@@ -77,21 +78,122 @@ function metricPercent(value: string): number | null {
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
-function sparklinePoints(values: number[]): string {
-    const recent = values.slice(-24);
-    if (!recent.length) return '';
-    const min = Math.min(...recent);
-    const max = Math.max(...recent);
-    const range = max - min || 1;
-    if (recent.length === 1) {
-        const y = 28 - (recent[0] - min) / range * 22;
-        return `0,${y} 100,${y}`;
-    }
-    return recent.map((value, index) => {
-        const x = recent.length < 2 ? 100 : index * 100 / (recent.length - 1);
-        const y = 28 - (value - min) / range * 22;
-        return `${x},${y}`;
-    }).join(' ');
+function MetricsTrendChart({
+    title, unit, points, color, active, isLight,
+}: {
+    title: string;
+    unit: string;
+    points: { x: number; y: number }[];
+    color: string;
+    active: boolean;
+    isLight: boolean;
+}) {
+    const chartNode = useRef<HTMLDivElement>(null);
+    const chartRef = useRef<ApexCharts | null>(null);
+    const chartReady = useRef(false);
+    const chartPoints = points.map(point => ({
+        x: new Date(point.x).toLocaleTimeString('pt-BR', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+        }),
+        y: point.y,
+    }));
+    const latestPoints = useRef(chartPoints);
+    const [chartError, setChartError] = useState('');
+    latestPoints.current = chartPoints;
+
+    useEffect(() => {
+        const element = chartNode.current;
+        if (!active || !element) return;
+        let mounted = true;
+        let chart: ApexCharts | null = null;
+        setChartError('');
+        const textColor = isLight ? '#59677a' : '#8796ad';
+        void import('apexcharts').then(({ default: ApexCharts }) => {
+            if (!mounted) return;
+            chart = new ApexCharts(element, {
+                chart: {
+                    type: 'area',
+                    height: 190,
+                    background: 'transparent',
+                    foreColor: textColor,
+                    fontFamily: 'Inter, ui-sans-serif, system-ui, sans-serif',
+                    toolbar: { show: false },
+                    zoom: { enabled: false },
+                    animations: { enabled: false },
+                },
+                series: [{ name: title, data: latestPoints.current }],
+                colors: [color],
+                dataLabels: { enabled: false },
+                stroke: { curve: 'smooth', width: 2 },
+                fill: {
+                    type: 'gradient',
+                    gradient: { opacityFrom: 0.22, opacityTo: 0.02, stops: [0, 100] },
+                },
+                markers: { size: 0, hover: { size: 4 } },
+                grid: { borderColor: isLight ? '#d7e0ea' : '#30384a', strokeDashArray: 3 },
+                xaxis: {
+                    type: 'category',
+                    labels: {
+                        rotate: 0,
+                        hideOverlappingLabels: true,
+                        style: { colors: textColor, fontSize: '10px' },
+                    },
+                    axisBorder: { show: false },
+                    axisTicks: { show: false },
+                    tooltip: { enabled: false },
+                },
+                yaxis: {
+                    min: 0,
+                    labels: {
+                        style: { colors: textColor, fontSize: '10px' },
+                        formatter: value => value == null ? '—' : `${value.toFixed(0)}${unit}`,
+                    },
+                },
+                tooltip: {
+                    theme: isLight ? 'light' : 'dark',
+                    y: { formatter: value => value == null ? '—' : `${value.toFixed(1)}${unit}` },
+                },
+                noData: { text: 'Aguardando leituras', style: { color: textColor } },
+            });
+            chartRef.current = chart;
+            chartReady.current = false;
+            return chart.render().then(() => {
+                if (!mounted) return;
+                chartReady.current = true;
+                return chart?.updateSeries([{ name: title, data: latestPoints.current }], false);
+            });
+        }).catch(reason => {
+            if (!mounted) return;
+            console.error('Erro ao renderizar gráfico de métricas:', reason);
+            chart?.destroy();
+            chart = null;
+            chartRef.current = null;
+            setChartError('Não foi possível carregar o gráfico.');
+        });
+        return () => {
+            mounted = false;
+            chartReady.current = false;
+            chartRef.current = null;
+            chart?.destroy();
+        };
+    }, [active, color, isLight, title, unit]);
+
+    useEffect(() => {
+        if (chartReady.current && chartRef.current) {
+            void chartRef.current.updateSeries([{ name: title, data: chartPoints }], true);
+        }
+    }, [chartPoints, title]);
+
+    return (
+        <div className="dashboard-trend-panel">
+            <h3>{title}</h3>
+            {chartError
+                ? <p role="alert">{chartError}</p>
+                : <div ref={chartNode} role="img" aria-label={`Histórico de ${title.toLowerCase()}`} />}
+        </div>
+    );
 }
 
 export default function Dashboard({
@@ -239,12 +341,13 @@ export default function Dashboard({
     const hasMemoryReading = metricsEnabled && servicesWithLiveMetrics.some(item =>
         (metrics[item.key]?.containers ?? []).some(container => metricMemoryBytes(container.memory_usage) !== null),
     );
-    const cpuTrend = trend
-        .map(point => point.cpu)
-        .filter((value): value is number => value !== null);
-    const memoryTrend = trend
-        .map(point => point.memory)
-        .filter((value): value is number => value !== null);
+    const cpuTrend = trend.flatMap(point =>
+        point.cpu === null ? [] : [{ x: point.at, y: point.cpu }],
+    );
+    const memoryTrend = trend.flatMap(point =>
+        point.memory === null ? [] : [{ x: point.at, y: point.memory / 1_048_576 }],
+    );
+    const isLight = document.documentElement.dataset.theme === 'light';
     const activePorts = selectedServices.reduce((total, { service }) => {
         if (service.running_containers === 0 || service.state === 'paused') return total;
         return total + displayPorts(service.ports).filter(port =>
@@ -273,9 +376,6 @@ export default function Dashboard({
                         <span>CPU</span>
                     </div>
                     <strong>{hasCpuReading ? `${cpuPercent.toFixed(1)}%` : '—'}</strong>
-                    <svg className="dashboard-kpi-sparkline" viewBox="0 0 100 32" role="img" aria-label="Tendência recente de CPU">
-                        <polyline points={sparklinePoints(cpuTrend)} />
-                    </svg>
                     <small title="A soma do uso dos containers pode ultrapassar 100%.">
                         {hasCpuReading ? `Soma de ${cpuValues.length} leituras de containers ativos` : 'Aguardando leitura de métricas'}
                     </small>
@@ -286,9 +386,6 @@ export default function Dashboard({
                         <span>Memória</span>
                     </div>
                     <strong>{hasMemoryReading ? formatMemory(memoryBytes) : '—'}</strong>
-                    <svg className="dashboard-kpi-sparkline" viewBox="0 0 100 32" role="img" aria-label="Tendência recente de memória">
-                        <polyline points={sparklinePoints(memoryTrend)} />
-                    </svg>
                     <small>Soma aproximada dos containers selecionados</small>
                 </Card>
                 <Card role="article" aria-label="Portas ativas" className="dashboard-overview-card dashboard-kpi dashboard-kpi-ports gap-0 border border-border bg-card p-4 text-card-foreground shadow-none ring-0">
@@ -300,6 +397,27 @@ export default function Dashboard({
                     <small>Portas TCP confirmadas como abertas</small>
                 </Card>
             </div>
+
+            {metricsEnabled && (
+                <section className="dashboard-trends" aria-label="Histórico de recursos">
+                    <MetricsTrendChart
+                        title="CPU"
+                        unit="%"
+                        points={cpuTrend}
+                        color={isLight ? '#5866c5' : '#aab4ff'}
+                        active={isActive}
+                        isLight={isLight}
+                    />
+                    <MetricsTrendChart
+                        title="Memória"
+                        unit=" MiB"
+                        points={memoryTrend}
+                        color={isLight ? '#21815d' : '#79dcb2'}
+                        active={isActive}
+                        isLight={isLight}
+                    />
+                </section>
+            )}
 
             {!metricsEnabled && (
                 <p className="dashboard-information" role="status">

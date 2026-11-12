@@ -283,6 +283,7 @@ test('service selection, scoped actions, stale polling and project stop in the b
         await waitFor('document.fonts.check(\'12px "JetBrains Mono"\')');
         await evaluate('document.querySelector(".update-check-button").click()');
         await waitFor('document.querySelector(".update-banner")?.textContent.includes("O aplicativo está atualizado.")');
+        assert.equal(await evaluate('document.querySelectorAll(\'.update-banner [aria-label="Fechar aviso de atualização"]\').length'), 1);
         assert.equal(await evaluate('getComputedStyle(document.body).backgroundColor'), 'rgb(15, 23, 41)');
         assert.equal(await evaluate('document.documentElement.classList.contains("dark")'), true);
         assert.equal(await evaluate('document.querySelector(".app-shell").classList.contains("bg-background")'), true);
@@ -569,11 +570,11 @@ test('service selection, scoped actions, stale polling and project stop in the b
         });
 
         await evaluate('document.querySelector(\'[aria-label="Selecionar serviço db de sample"]\').click()');
-        await evaluate('document.querySelector(\'[aria-label="Recolher projeto sample · PPC"]\').click()');
-        await waitFor('document.querySelector(\'[aria-label="Expandir projeto sample · PPC"]\')?.getAttribute("aria-expanded") === "false"');
+        await evaluate('document.querySelector(\'[aria-label="Fechar detalhes de sample · PPC"]\').click()');
+        await waitFor('document.querySelector(\'[aria-label="Abrir detalhes de sample · PPC"]\')?.getAttribute("aria-expanded") === "false"');
         assert.equal(await evaluate('document.querySelector(".service-list").getClientRects().length'), 0);
         assert.equal(await evaluate('document.querySelector(".project-actions .action-icon-button.is-danger").getClientRects().length > 0'), true);
-        await evaluate('document.querySelector(\'[aria-label="Expandir projeto sample · PPC"]\').click()');
+        await evaluate('document.querySelector(\'[aria-label="Abrir detalhes de sample · PPC"]\').click()');
         await waitFor('document.querySelector(".service-list").getClientRects().length > 0');
         assert.equal(await evaluate('document.querySelector(\'[aria-label="Selecionar serviço db de sample"]\').checked'), true);
         await evaluate('document.querySelector(\'[aria-label="Selecionar serviço db de sample"]\').click()');
@@ -592,12 +593,12 @@ test('service selection, scoped actions, stale polling and project stop in the b
         await waitFor('document.querySelector(".dashboard-screen").hidden');
         await evaluate('document.querySelector(\'[aria-label="Limpar terminal de db"]\').click()');
         assert.equal(await evaluate('document.querySelector(".terminal-output").textContent'), 'Digite um comando para começar.');
-        assert.equal(await evaluate('document.querySelector(\'[aria-label="Recolher projeto sample · PPC"]\')?.getAttribute("aria-expanded")'), 'true');
-        await evaluate('document.querySelector(\'[aria-label="Recolher projeto sample · PPC"]\').click()');
-        await waitFor('document.querySelector(\'[aria-label="Expandir projeto sample · PPC"]\')?.getAttribute("aria-expanded") === "false"');
+        assert.equal(await evaluate('document.querySelector(\'[aria-label="Fechar detalhes de sample · PPC"]\')?.getAttribute("aria-expanded")'), 'true');
+        await evaluate('document.querySelector(\'[aria-label="Fechar detalhes de sample · PPC"]\').click()');
+        await waitFor('document.querySelector(\'[aria-label="Abrir detalhes de sample · PPC"]\')?.getAttribute("aria-expanded") === "false"');
         assert.ok(await evaluate('document.querySelector(".terminal-panel") !== null'));
-        await evaluate('document.querySelector(\'[aria-label="Expandir projeto sample · PPC"]\').click()');
-        await waitFor('document.querySelector(\'[aria-label="Recolher projeto sample · PPC"]\')?.getAttribute("aria-expanded") === "true"');
+        await evaluate('document.querySelector(\'[aria-label="Abrir detalhes de sample · PPC"]\').click()');
+        await waitFor('document.querySelector(\'[aria-label="Fechar detalhes de sample · PPC"]\')?.getAttribute("aria-expanded") === "true"');
         const startsBeforeDbLogs = await evaluate('window.testCalls.filter(call => call.command === "start_service_logs").length');
         await clickServiceMenuAction('db', 'Exibir logs de db de sample');
         await waitFor(`window.testCalls.filter(call => call.command === "start_service_logs").length > ${startsBeforeDbLogs}`);
@@ -606,7 +607,7 @@ test('service selection, scoped actions, stale polling and project stop in the b
         await evaluate('[...document.querySelectorAll(".terminal-panel .utility-heading button")].find(button => button.textContent === "Fechar terminal").click()');
         await waitFor('document.querySelector(".terminal-panel") === null');
         assert.ok(await evaluate('document.querySelector(".log-panel") !== null'));
-        assert.equal(await evaluate('document.querySelector(\'[aria-label="Recolher projeto sample · PPC"]\')?.getAttribute("aria-expanded")'), 'true');
+        assert.equal(await evaluate('document.querySelector(\'[aria-label="Fechar detalhes de sample · PPC"]\')?.getAttribute("aria-expanded")'), 'true');
         const dbStream = await evaluate('window.testCalls.filter(call => call.command === "start_service_logs").at(-1).args');
         assert.equal(dbStream.service, 'db');
         await evaluate(`window.emitLog(${JSON.stringify(dbStream.streamId)}, "database ready"); window.emitLog("unrelated-stream", "wrong service");`);
@@ -631,10 +632,10 @@ test('service selection, scoped actions, stale polling and project stop in the b
         assert.equal(await evaluate('window.testCalls.filter(call => call.command === "start_service_logs").at(-1).args.service'), 'api');
         assert.equal(await evaluate('document.querySelectorAll(".log-panel").length'), 1);
         const stopsBeforeCollapse = await evaluate('window.testCalls.filter(call => call.command === "stop_service_logs").length');
-        await evaluate('document.querySelector(\'[aria-label="Recolher projeto sample · PPC"]\').click()');
+        await evaluate('document.querySelector(\'[aria-label="Fechar detalhes de sample · PPC"]\').click()');
         await waitFor(`window.testCalls.filter(call => call.command === "stop_service_logs").length > ${stopsBeforeCollapse}`);
         assert.equal(await evaluate('document.querySelector(".log-panel")'), null);
-        await evaluate('document.querySelector(\'[aria-label="Expandir projeto sample · PPC"]\').click()');
+        await evaluate('document.querySelector(\'[aria-label="Abrir detalhes de sample · PPC"]\').click()');
         assert.equal(await evaluate('document.querySelector(".log-panel")'), null);
 
         const startsBeforePendingLogs = await evaluate('window.testCalls.filter(call => call.command === "start_service_logs").length');
@@ -720,6 +721,7 @@ test('service selection, scoped actions, stale polling and project stop in the b
             projectPath: '/fixture/sample', dockerContext: 'default', profiles: [], envFile: null, service: 'db',
         });
         await waitFor('document.querySelector(".dashboard-container-row")?.textContent.includes("20MiB / 1GiB")');
+        await waitFor('document.querySelectorAll(".dashboard-trend-panel .apexcharts-svg").length === 2');
         assert.equal(await evaluate('document.querySelectorAll(".dashboard-service-card").length'), 1);
         assert.ok(await evaluate('document.querySelector(".dashboard-overview").textContent.includes("30.0 MiB")'));
         assert.equal(await evaluate('document.querySelectorAll(".dashboard-kpi").length'), 3);
@@ -727,6 +729,7 @@ test('service selection, scoped actions, stale polling and project stop in the b
         assert.equal(await evaluate('document.querySelector(".dashboard-kpi-ports strong").textContent'), '0');
         assert.ok(await evaluate('document.querySelector(".dashboard-service-title .status-pill").classList.contains("status-up")'));
         assert.equal(await evaluate('document.documentElement.scrollWidth <= window.innerWidth'), true, 'Dashboard overflow at desktop');
+        assert.ok(await evaluate('document.scrollingElement.scrollHeight <= window.innerHeight && document.querySelector(".dashboard-screen").scrollHeight > document.querySelector(".dashboard-screen").clientHeight'), 'Dashboard content should scroll inside its own viewport');
         const dashboardCapture = await send('Page.captureScreenshot', { format: 'png' });
         await writeFile('/tmp/dsm-dashboard-desktop.png', Buffer.from(dashboardCapture.data, 'base64'));
         await clickServiceMenuAction('db', 'Reiniciar serviço db de sample');
@@ -789,6 +792,11 @@ test('service selection, scoped actions, stale polling and project stop in the b
         await selectTab('Dashboard');
         await waitFor('!document.querySelector(".dashboard-screen").hidden');
         assert.equal(await evaluate('document.documentElement.scrollWidth <= window.innerWidth'), true);
+        assert.ok(await evaluate(`(() => {
+            const dashboard = document.querySelector(".dashboard-screen").getBoundingClientRect();
+            const description = document.querySelector(".dashboard-screen-heading p:last-child").getBoundingClientRect();
+            return description.right <= dashboard.right + 1;
+        })()`), 'Dashboard description should wrap within the mobile viewport');
         assert.equal(await evaluate(`(() => {
             const dock = document.querySelector(".app-dock").getBoundingClientRect();
             const tools = document.querySelector(".topbar-tools").getBoundingClientRect();
@@ -811,6 +819,24 @@ test('service selection, scoped actions, stale polling and project stop in the b
         assert.ok(await evaluate('window.testCalls.filter(call => call.command === "get_service_metrics").length >= 2'));
         await evaluate('window.includeSecondProject = true; document.querySelector(".scan-button").click()');
         await waitFor('document.querySelectorAll(".project-card").length === 2');
+        const projectPickerMetrics = await evaluate(`(() => {
+            const cards = [...document.querySelectorAll(".project-card")];
+            const picker = document.querySelector(".project-picker");
+            const gap = cards[1].getBoundingClientRect().top - cards[0].getBoundingClientRect().bottom;
+            return {
+                gap,
+                pickerHeight: picker.clientHeight,
+                pickerScrollHeight: picker.scrollHeight,
+                documentHeight: document.scrollingElement.scrollHeight,
+                viewportHeight: window.innerHeight,
+            };
+        })()`);
+        assert.ok(
+            projectPickerMetrics.gap >= 0 && projectPickerMetrics.gap <= 16
+                && projectPickerMetrics.pickerScrollHeight > projectPickerMetrics.pickerHeight
+                && projectPickerMetrics.documentHeight <= projectPickerMetrics.viewportHeight,
+            `Project cards should stay close together and scroll inside the picker: ${JSON.stringify(projectPickerMetrics)}`,
+        );
         await evaluate('[...document.querySelectorAll(".chip")].find(chip => chip.textContent.includes("Favoritos")).click()');
         await waitFor('document.querySelectorAll(".project-card").length === 1');
         assert.equal(await evaluate('document.querySelector(".project-title-row h3").textContent'), 'sample · PPC');
@@ -862,7 +888,7 @@ test('service selection, scoped actions, stale polling and project stop in the b
         await waitFor('window.testCalls.some(call => call.command === "stop_service_terminal")');
         await selectTab('Projetos');
         await waitFor('document.querySelector(".dashboard-screen").hidden');
-        await evaluate('document.querySelector(\'[aria-label="Expandir projeto sample · PPC"]\')?.click()');
+        await evaluate('document.querySelector(\'[aria-label="Abrir detalhes de sample · PPC"]\')?.click()');
         await waitFor('document.querySelector(\'[aria-label="Iniciar serviço db de sample"]\') !== null');
         await evaluate('document.querySelector(\'[aria-label="Iniciar serviço db de sample"]\').click()');
         await waitFor('window.testCalls.some(call => call.command === "write_service_terminal" && call.args.input === "echo startup\\n")');

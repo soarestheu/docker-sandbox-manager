@@ -2,6 +2,7 @@
 import { Fragment, useState, useEffect, useRef } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
+import { createPortal } from 'react-dom';
 import { open as openDirectoryDialog } from '@tauri-apps/plugin-dialog';
 import { isPermissionGranted, requestPermission } from '@tauri-apps/plugin-notification';
 import { LoaderCircle, MoreVertical, Play, RefreshCw, RotateCw, Shell, Square } from 'lucide-react';
@@ -88,6 +89,7 @@ export default function App() {
     } | null>(null);
     const [selectedServices, setSelectedServices] = useState<Record<string, string[]>>({});
     const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
+    const [projectDetailTarget, setProjectDetailTarget] = useState<HTMLDivElement | null>(null);
     const scanPopoverRef = useRef<HTMLDetailsElement>(null);
     const [busyPaths, setBusyPaths] = useState<Record<string, PendingAction>>({});
     const busyRef = useRef<Record<string, PendingAction>>({});
@@ -1238,33 +1240,24 @@ export default function App() {
                             <>
                                 <span>Nova versão <strong>{updater.state.version}</strong> disponível.</span>
                                 <button className="button button-primary" onClick={() => void updater.install()}>Atualizar agora</button>
-                                <button className="icon-button" onClick={updater.dismiss} aria-label="Dispensar aviso de atualização" title="Depois"><Icon name="close" /></button>
                             </>
                         )}
                         {updater.state.status === 'downloading' && (
                             <span>Baixando {updater.state.version}{updater.state.progress !== null ? ` — ${updater.state.progress}%` : '…'}</span>
                         )}
                         {updater.state.status === 'current' && (
-                            <>
-                                <span>O aplicativo está atualizado.</span>
-                                <button
-                                    className="icon-button"
-                                    onClick={updater.dismiss}
-                                    aria-label="Dispensar confirmação de atualização"
-                                    title="Fechar"
-                                ><Icon name="close" /></button>
-                            </>
+                            <span>O aplicativo está atualizado.</span>
                         )}
                         {updater.state.status === 'error' && (
-                            <>
-                                <span>{updater.state.action === 'check' ? 'Falha ao verificar atualizações' : 'Falha ao atualizar'}: {updater.state.message}</span>
-                                <button
-                                    className="icon-button"
-                                    onClick={updater.dismiss}
-                                    aria-label="Dispensar erro de atualização"
-                                    title="Dispensar erro"
-                                ><Icon name="close" /></button>
-                            </>
+                            <span>{updater.state.action === 'check' ? 'Falha ao verificar atualizações' : 'Falha ao atualizar'}: {updater.state.message}</span>
+                        )}
+                        {updater.state.status !== 'downloading' && (
+                            <button
+                                className="icon-button"
+                                onClick={updater.dismiss}
+                                aria-label="Fechar aviso de atualização"
+                                title="Fechar"
+                            ><Icon name="close" /></button>
                         )}
                     </div>
                 )}
@@ -1398,6 +1391,7 @@ export default function App() {
                         </div>
                     ) : (
                         <div className="project-list">
+                            <div className="project-picker" role="region" aria-label="Escolha um projeto">
                             {visibleProjects.map((project) => {
                                 const projectServiceNames = serviceNames[project.path] ?? {};
                                 const projectName = projectDisplayName(
@@ -1426,8 +1420,8 @@ export default function App() {
                                     service.running_containers > 0 ? displayPorts(service.ports).map(port => port.published) : []))];
 
                                 return (
+                                    <Fragment key={project.path}>
                                     <Card
-                                        key={project.path}
                                         role="article"
                                         aria-label={`Projeto ${projectName}`}
                                         className={`project-card gap-0 rounded-xl border border-border bg-card p-0 text-card-foreground shadow-none ring-0${isRunning ? ' is-running' : ''}${isExpanded ? ' is-selected' : ''}`}
@@ -1447,18 +1441,12 @@ export default function App() {
                                                     aria-label={`Selecionar ${projectName}`}
                                                 />
                                             </label>
-                                            <button
-                                                className="icon-button expand-toggle"
-                                                aria-label={`${isExpanded ? 'Recolher' : 'Expandir'} projeto ${projectName}`}
-                                                aria-expanded={isExpanded}
-                                                aria-controls={detailsId}
-                                                onClick={() => toggleProjectDetails(project.path)}
-                                            ><Icon name="chevron" /></button>
                                             <div className="project-info">
                                                 <div className="project-title-row">
                                                     <h3 title={project.path}><button
                                                         type="button"
                                                         className="project-open-button"
+                                                        aria-label={`${isExpanded ? 'Fechar' : 'Abrir'} detalhes de ${projectName}`}
                                                         aria-expanded={isExpanded}
                                                         aria-controls={detailsId}
                                                         onClick={() => toggleProjectDetails(project.path)}
@@ -1567,6 +1555,8 @@ export default function App() {
                                                 </details>
                                             </div>
                                         </div>
+                                    </Card>
+                                    {projectDetailTarget && createPortal(
                                         <aside
                                             id={detailsId}
                                             className={`project-detail-pane${isExpanded ? ' is-open' : ''}`}
@@ -2066,10 +2056,15 @@ export default function App() {
                                         )}
 
                                         </div>
-                                        </aside>
-                                    </Card>
+                                        </aside>,
+                                        projectDetailTarget,
+                                        project.path,
+                                    )}
+                                    </Fragment>
                                 );
                             })}
+                            </div>
+                            <div className="project-detail-region" ref={setProjectDetailTarget}>
                             {!visibleProjects.some(project => expandedProjects[project.path]) && (
                                 <div className="project-detail-placeholder" aria-live="polite">
                                     <span className="detail-placeholder-mark"><Icon name="folder" size={20} /></span>
@@ -2077,6 +2072,7 @@ export default function App() {
                                     <p>Os serviços, as portas e as ações do projeto aparecem aqui.</p>
                                 </div>
                             )}
+                            </div>
                         </div>
                     )}
                 </section>
@@ -2119,11 +2115,11 @@ export default function App() {
                 <TabsTrigger
                     value="projects"
                     className={`button ${screen === 'projects' ? 'button-primary' : 'button-quiet'}`}
-                ><Icon name="folder" size={16} /><span>Projetos</span></TabsTrigger>
+                ><Icon name={screen === 'projects' ? 'folderOpen' : 'folder'} size={16} /><span>Projetos</span></TabsTrigger>
                 <TabsTrigger
                     value="dashboard"
                     className={`button ${screen === 'dashboard' ? 'button-primary' : 'button-quiet'}`}
-                ><Icon name="chart" size={16} /><span>Dashboard</span></TabsTrigger>
+                ><Icon name={screen === 'dashboard' ? 'chartActive' : 'chart'} size={16} /><span>Dashboard</span></TabsTrigger>
             </TabsList>
             </Tabs>
             {featureModalOpen && (
