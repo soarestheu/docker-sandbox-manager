@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import Icon from './Icon';
 import type { TerminalCommandPreset } from './workspace';
+import { ScrollArea } from './components/ui/scroll-area';
 
 export interface AutoCommandResult {
     command: string;
@@ -47,7 +48,7 @@ export default function ServiceTerminal({
     const [presetAutoExecute, setPresetAutoExecute] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
     const streamIdRef = useRef('');
-    const outputRef = useRef<HTMLPreElement>(null);
+    const outputRef = useRef<HTMLDivElement>(null);
     const handledAutoBatchRef = useRef('');
     const pendingAutoMarkersRef = useRef(new Map<string, {
         resolve: (exitCode: number) => void;
@@ -289,7 +290,16 @@ export default function ServiceTerminal({
                 <input type="checkbox" checked={autoScroll} onChange={event => setAutoScroll(event.target.checked)} />
                 Rolagem automática
             </label>
-            <pre ref={outputRef} className="terminal-output" aria-live="polite">{output || 'Digite um comando para começar.'}</pre>
+            <ScrollArea
+                className="terminal-output-scroll-area"
+                viewportProps={{
+                    className: 'terminal-output',
+                    ref: outputRef,
+                    'aria-live': 'polite',
+                }}
+            >
+                <pre className="terminal-output-content">{output || 'Digite um comando para começar.'}</pre>
+            </ScrollArea>
             <form className="terminal-input-row" onSubmit={sendCommand}>
                 <label htmlFor={`terminal-command-${service}`}>$</label>
                 <input
@@ -328,28 +338,27 @@ export default function ServiceTerminal({
                                             <strong>{preset.name}</strong>
                                             <code>{preset.command}</code>
                                         </button>
-                                        {preset.autoExecute && (() => {
+                                        {preset.autoExecute && commandResults[preset.name] && (() => {
                                             const result = commandResults[preset.name];
                                             const currentResult = result?.command === preset.command ? result : undefined;
-                                            const label = currentResult?.status === 'running' ? 'Executando…'
+                                            if (!currentResult) return null;
+                                            const label = currentResult.status === 'running' ? 'Executando…'
                                                 : currentResult?.status === 'success' ? 'Executado'
                                                     : currentResult?.status === 'error' ? 'Erro ao executar' : 'Execução automática';
                                             return (
                                                 <span
-                                                    className={`terminal-auto-result${currentResult?.status === 'error' ? ' is-error' : ''}`}
-                                                    title={currentResult?.output || undefined}
-                                                    role={currentResult?.status === 'error' ? 'alert' : 'status'}
+                                                    className={`terminal-auto-result${currentResult.status === 'error' ? ' is-error' : ''}`}
+                                                    title={currentResult.output || undefined}
+                                                    role={currentResult.status === 'error' ? 'alert' : 'status'}
                                                 >
                                                     <span>{label}{currentResult?.status === 'error' && currentResult.output ? `: ${currentResult.output}` : ''}</span>
-                                                    {currentResult && (
-                                                        <button
-                                                            type="button"
-                                                            className="icon-button"
-                                                            aria-label={`Fechar mensagem de execução automática ${preset.name}`}
-                                                            title="Fechar mensagem"
-                                                            onClick={() => onDismissAutoCommandResult(preset.name)}
-                                                        ><Icon name="close" size={12} /></button>
-                                                    )}
+                                                    <button
+                                                        type="button"
+                                                        className="icon-button"
+                                                        aria-label={`Fechar mensagem de execução automática ${preset.name}`}
+                                                        title="Fechar mensagem"
+                                                        onClick={() => onDismissAutoCommandResult(preset.name)}
+                                                    ><Icon name="close" size={12} /></button>
                                                 </span>
                                             );
                                         })()}

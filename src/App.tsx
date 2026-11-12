@@ -4,7 +4,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openDirectoryDialog } from '@tauri-apps/plugin-dialog';
 import { isPermissionGranted, requestPermission } from '@tauri-apps/plugin-notification';
-import { LoaderCircle, Play, RefreshCw, Square } from 'lucide-react';
+import { LoaderCircle, MoreVertical, Play, RefreshCw, RotateCw, Shell, Square } from 'lucide-react';
 import { displayPorts, isProjectActive, isServiceActive, portStateLabel, serviceStateLabel } from './docker';
 import type { Project, ProjectState } from './docker';
 import Icon from './Icon';
@@ -25,6 +25,11 @@ import type {
     DashboardSelection, FeatureFlags, PreferredIDE, Preferences, ProjectComposeOptions, ProjectComposeOptionsMap, ServicePreset,
     ServiceNames, ServicePresets, ServiceSort, StatusFilter, TerminalCommandPreset, TerminalCommandPresets,
 } from './workspace';
+import { Card } from './components/ui/card';
+import {
+    DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
+} from './components/ui/dropdown-menu';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
 
 interface PendingAction {
     label: string;
@@ -147,18 +152,10 @@ export default function App() {
 
     useEffect(() => {
         let mounted = true;
-        void invoke<boolean | null>('admin_launch_status').then(async status => {
+        localStorage.removeItem('sandbox-admin-launch');
+        void invoke<boolean | null>('admin_launch_status').then(status => {
             if (!mounted) return;
             setAdminStatus(status);
-            if (status === false && localStorage.getItem('sandbox-admin-launch') === 'true') {
-                try {
-                    await invoke('reopen_as_admin');
-                    const { exit } = await import('@tauri-apps/plugin-process');
-                    await exit(0);
-                } catch (err) {
-                    if (mounted) setMessage(`Erro ao reabrir como administrador: ${err}`);
-                }
-            }
         }).catch(err => {
             if (mounted) setMessage(`Erro ao verificar privilégios administrativos: ${err}`);
         });
@@ -215,6 +212,7 @@ export default function App() {
 
     useEffect(() => {
         document.documentElement.dataset.theme = theme;
+        document.documentElement.classList.toggle('dark', theme === 'dark');
         try {
             localStorage.setItem('sandbox-theme', theme);
         } catch (err) {
@@ -662,7 +660,7 @@ export default function App() {
         }
     };
 
-    const handleDockerAction = async (path: string, action: ComposeAction, services?: string[]) => {
+    const handleDockerAction = async (path: string, action: ComposeAction, services?: string[]): Promise<boolean> => {
         const error = await performAction(path, action, services);
         if (!error && (action === 'restart' || action === 'recreate')) {
             const serviceNames = services
@@ -683,6 +681,17 @@ export default function App() {
             recreate: 'Containers recriados',
         };
         setMessage(error ? `Erro em ${path}: ${error}` : `${successMessages[action]} em ${path}.`);
+        return !error;
+    };
+
+    const handleSelectedServicesAction = async (path: string, action: ComposeAction, services: string[]) => {
+        const succeeded = await handleDockerAction(path, action, services);
+        if (succeeded) {
+            setSelectedServices(prev => ({
+                ...prev,
+                [path]: (prev[path] ?? []).filter(name => !services.includes(name)),
+            }));
+        }
     };
 
     const toggleDashboardTerminal = (path: string, service: string) => {
@@ -937,13 +946,15 @@ export default function App() {
 
     const handleBatchAction = async (action: 'up' | 'down') => {
         if (visibleSelectedPaths.length === 0) return;
+        const paths = [...visibleSelectedPaths];
         setLoading(true);
-        setMessage(`Executando ação em ${visibleSelectedPaths.length} projetos…`);
+        setMessage(`Executando ação em ${paths.length} projetos…`);
         const errors: string[] = [];
         try {
-            for (const path of visibleSelectedPaths) {
+            for (const path of paths) {
                 const error = await performAction(path, action);
                 if (error) errors.push(`${path}: ${error}`);
+                else setSelectedPaths(prev => prev.filter(selectedPath => selectedPath !== path));
             }
             setMessage(errors.length
                 ? `Falha em ${errors.length} projeto(s): ${errors.join(' | ')}`
@@ -1030,25 +1041,29 @@ export default function App() {
             : []),
     ])];
     const inlineTerminalKeys = new Set<string>();
-    if (screen === 'projects') {
-        for (const project of visibleProjects) {
-            if (!expandedProjects[project.path]) continue;
-            const names = serviceNames[project.path] ?? {};
-            const displayName = projectDisplayName(
-                project.name,
-                preferences[project.path]?.alias ?? '',
-                preferences[project.path]?.aliasPosition ?? 'prefix',
-            );
-            const projectServices = sortServices(
-                servicesForFilter(project, query, statusFilter, names, displayName),
-                serviceSort,
-            );
-            for (const service of projectServices) {
-                const key = terminalCommandPresetKey(dockerContext, project.path, service.name);
-                if (terminalSessionKeys.includes(key)) inlineTerminalKeys.add(key);
-            }
+    for (const project of visibleProjects) {
+        if (!expandedProjects[project.path]) continue;
+        const names = serviceNames[project.path] ?? {};
+        const displayName = projectDisplayName(
+            project.name,
+            preferences[project.path]?.alias ?? '',
+            preferences[project.path]?.aliasPosition ?? 'prefix',
+        );
+        const projectServices = sortServices(
+            servicesForFilter(project, query, statusFilter, names, displayName),
+            serviceSort,
+        );
+        for (const service of projectServices) {
+            const key = terminalCommandPresetKey(dockerContext, project.path, service.name);
+            if (terminalSessionKeys.includes(key)) inlineTerminalKeys.add(key);
         }
     }
+    const toggleProjectDetails = (path: string) => {
+        const isExpanded = !!expandedProjects[path];
+        setExpandedProjects(isExpanded ? {} : { [path]: true });
+        setActiveLogPanel(null);
+        setActiveMetrics(null);
+    };
     const renderTerminalSession = (key: string) => {
         const [context, path, service] = JSON.parse(key) as [string, string, string];
         const options = projectOptions[path] ?? EMPTY_COMPOSE_OPTIONS;
@@ -1075,7 +1090,14 @@ export default function App() {
     };
 
     return (
-        <main className="app-shell">
+        <main className="app-shell bg-background text-foreground">
+            <Tabs
+                value={screen}
+                onValueChange={value => {
+                    if (value === 'projects' || value === 'dashboard') setScreen(value);
+                }}
+                className="app-tabs"
+            >
             <div className="app-frame">
                 <header className="topbar">
                     <div className="brand">
@@ -1086,7 +1108,7 @@ export default function App() {
                             </svg>
                         </div>
                         <div className="brand-copy">
-                            <p className="brand-name">Docker <span>Sandbox</span></p>
+                            <p className="brand-name">Docker <span>Sandbox Manager</span></p>
                             <small className="app-version" aria-label={`Versão ${appVersion || 'carregando'}`}>
                                 {appVersion ? `v${appVersion}` : 'Versão carregando…'}
                             </small>
@@ -1161,20 +1183,6 @@ export default function App() {
                                 </details>
                             </>
                         )}
-                        <div className="screen-switcher" role="group" aria-label="Navegação principal">
-                            <button
-                                type="button"
-                                className={`button ${screen === 'projects' ? 'button-primary' : 'button-quiet'}`}
-                                aria-pressed={screen === 'projects'}
-                                onClick={() => setScreen('projects')}
-                            >Projetos</button>
-                            <button
-                                type="button"
-                                className={`button ${screen === 'dashboard' ? 'button-primary' : 'button-quiet'}`}
-                                aria-pressed={screen === 'dashboard'}
-                                onClick={() => setScreen('dashboard')}
-                            >Dashboard</button>
-                        </div>
                         <span className="topbar-divider" aria-hidden="true" />
                         <button
                             type="button"
@@ -1187,13 +1195,12 @@ export default function App() {
                                 : <RefreshCw size={14} aria-hidden="true" />}
                             {updater.state.status === 'checking' ? 'Verificando…' : 'Verificar atualizações'}
                         </button>
-                        {adminStatus === false && (
+                        {adminStatus === false && !import.meta.env.DEV && (
                             <button
                                 className="button button-quiet admin-relaunch"
                                 onClick={() => {
                                     void invoke('reopen_as_admin')
                                         .then(async () => {
-                                            localStorage.setItem('sandbox-admin-launch', 'true');
                                             const { exit } = await import('@tauri-apps/plugin-process');
                                             await exit(0);
                                         })
@@ -1297,7 +1304,19 @@ export default function App() {
                     </div>
                 )}
 
-                {screen === 'projects' ? <section className="projects-section">
+                <TabsContent
+                    value="projects"
+                    forceMount
+                    className="screen-tab-content data-[state=inactive]:hidden"
+                >
+                <section className="projects-section bg-background text-foreground" aria-label="Projetos Docker">
+                    <header className="projects-screen-heading">
+                        <div>
+                            <h1>Projetos</h1>
+                            <p>Descubra e opere seus projetos Compose em um só lugar.</p>
+                        </div>
+                        {searchPath && <span className="workspace-tag"><Icon name="folder" size={14} />{workspaceLabel(searchPath)}</span>}
+                    </header>
                     <div className="project-filters">
                         <label className="search-field">
                             <Icon name="search" />
@@ -1407,8 +1426,19 @@ export default function App() {
                                     service.running_containers > 0 ? displayPorts(service.ports).map(port => port.published) : []))];
 
                                 return (
-                                    <article key={project.path} className={`project-card${isRunning ? ' is-running' : ''}`}>
-                                        <div className="project-main">
+                                    <Card
+                                        key={project.path}
+                                        role="article"
+                                        aria-label={`Projeto ${projectName}`}
+                                        className={`project-card gap-0 rounded-xl border border-border bg-card p-0 text-card-foreground shadow-none ring-0${isRunning ? ' is-running' : ''}${isExpanded ? ' is-selected' : ''}`}
+                                    >
+                                        <div
+                                            className="project-main"
+                                            onClick={event => {
+                                                if ((event.target as HTMLElement).closest('.project-actions, button, input, label, summary, details, select, a, [role="menuitem"]')) return;
+                                                toggleProjectDetails(project.path);
+                                            }}
+                                        >
                                             <label className="project-select">
                                                 <input
                                                     type="checkbox"
@@ -1422,15 +1452,17 @@ export default function App() {
                                                 aria-label={`${isExpanded ? 'Recolher' : 'Expandir'} projeto ${projectName}`}
                                                 aria-expanded={isExpanded}
                                                 aria-controls={detailsId}
-                                                onClick={() => {
-                                                    setExpandedProjects(prev => ({ ...prev, [project.path]: !isExpanded }));
-                                                    if (isExpanded && activeLogPanel?.path === project.path) setActiveLogPanel(null);
-                                                    if (isExpanded && activeMetrics?.path === project.path) setActiveMetrics(null);
-                                                }}
+                                                onClick={() => toggleProjectDetails(project.path)}
                                             ><Icon name="chevron" /></button>
                                             <div className="project-info">
                                                 <div className="project-title-row">
-                                                    <h3 title={project.path}>{projectName}</h3>
+                                                    <h3 title={project.path}><button
+                                                        type="button"
+                                                        className="project-open-button"
+                                                        aria-expanded={isExpanded}
+                                                        aria-controls={detailsId}
+                                                        onClick={() => toggleProjectDetails(project.path)}
+                                                    >{projectName}</button></h3>
                                                     <button
                                                         className="favorite-button"
                                                         aria-label={`Favoritar projeto ${projectName}`}
@@ -1535,6 +1567,12 @@ export default function App() {
                                                 </details>
                                             </div>
                                         </div>
+                                        <aside
+                                            id={detailsId}
+                                            className={`project-detail-pane${isExpanded ? ' is-open' : ''}`}
+                                            hidden={!isExpanded}
+                                            aria-label={`Detalhes de ${projectName}`}
+                                        >
                                         {features.diagnostics && (diagnosticErrors[project.path] || diagnostics[project.path]) && (
                                             <div className="diagnostic-results" role={diagnosticErrors[project.path] ? 'alert' : 'status'}>
                                                 <div className="diagnostic-messages">
@@ -1685,7 +1723,7 @@ export default function App() {
                                             </div>
                                         )}
 
-                                        <div id={detailsId} hidden={!isExpanded}>
+                                        <div className="project-services-content">
                                         {project.services.length > 0 && (
                                             <div className="project-details">
                                                 <div className="services-heading">
@@ -1740,12 +1778,12 @@ export default function App() {
                                                         <button
                                                             className="button button-subtle"
                                                             disabled={controlsDisabled || !!project.error || !selectedItems.some(service => !isServiceActive(service))}
-                                                            onClick={() => handleDockerAction(project.path, 'up', selection)}
+                                                            onClick={() => void handleSelectedServicesAction(project.path, 'up', selection)}
                                                         >Iniciar selecionados</button>
                                                         <button
                                                             className="button button-danger-subtle"
                                                             disabled={controlsDisabled || !!project.error || !selectedItems.some(isServiceActive)}
-                                                            onClick={() => handleDockerAction(project.path, 'stop', selection)}
+                                                            onClick={() => void handleSelectedServicesAction(project.path, 'stop', selection)}
                                                         >Parar selecionados</button>
                                                         <details className="popover menu">
                                                             <summary className="button button-quiet">Mais <Icon name="chevron" size={13} /></summary>
@@ -1756,22 +1794,22 @@ export default function App() {
                                                                 <button
                                                                     className="menu-item"
                                                                     disabled={controlsDisabled || !!project.error || !selection.length}
-                                                                    onClick={() => handleDockerAction(project.path, 'up_with_deps', selection)}
+                                                                    onClick={() => void handleSelectedServicesAction(project.path, 'up_with_deps', selection)}
                                                                 >Iniciar com dependências</button>
                                                                 <button
                                                                     className="menu-item"
                                                                     disabled={controlsDisabled || !!project.error || !selection.length}
-                                                                    onClick={() => handleDockerAction(project.path, 'pull', selection)}
+                                                                    onClick={() => void handleSelectedServicesAction(project.path, 'pull', selection)}
                                                                 >Pull selecionados</button>
                                                                 <button
                                                                     className="menu-item"
                                                                     disabled={controlsDisabled || !!project.error || !selection.length}
-                                                                    onClick={() => handleDockerAction(project.path, 'build', selection)}
+                                                                    onClick={() => void handleSelectedServicesAction(project.path, 'build', selection)}
                                                                 >Build selecionados</button>
                                                                 <button
                                                                     className="menu-item"
                                                                     disabled={controlsDisabled || !!project.error || !selection.length}
-                                                                    onClick={() => handleDockerAction(project.path, 'recreate', selection)}
+                                                                    onClick={() => void handleSelectedServicesAction(project.path, 'recreate', selection)}
                                                                 >Recriar selecionados</button>
                                                             </div>
                                                         </details>
@@ -1783,11 +1821,15 @@ export default function App() {
                                                         const active = isServiceActive(service);
                                                         const paused = service.state === 'paused';
                                                         const ports = displayPorts(service.ports);
-                                                        const showLogs = activeLogPanel?.path === project.path && activeLogPanel.service === service.name;
+                                                        const showLogs = screen === 'projects'
+                                                            && activeLogPanel?.path === project.path
+                                                            && activeLogPanel.service === service.name;
                                                         const showTerminal = activeTerminalPanel?.context === dockerContext
                                                             && activeTerminalPanel.path === project.path
                                                             && activeTerminalPanel.service === service.name;
-                                                        const showMetrics = activeMetrics?.path === project.path && activeMetrics.service === service.name;
+                                                        const showMetrics = screen === 'projects'
+                                                            && activeMetrics?.path === project.path
+                                                            && activeMetrics.service === service.name;
                                                         const hasContainerDetails = features.metrics || features.containerId || features.inspect || features.volumes || features.state;
                                                         const serviceBusyLabel = busy && (busy.services === null || busy.services.includes(service.name))
                                                             ? busy.label : undefined;
@@ -1878,82 +1920,14 @@ export default function App() {
                                                                 ><span className="feature-switch-thumb" /></button>
                                                                 <button
                                                                     type="button"
-                                                                    className={`icon-button service-terminal-toggle${terminalPanelOpen ? ' is-active' : ''}`}
-                                                                    aria-label={`${terminalPanelOpen ? 'Fechar' : 'Abrir'} terminal de ${service.name} de ${project.name}`}
-                                                                    title={terminalPanelOpen ? 'Fechar terminal' : 'Terminal'}
-                                                                    aria-expanded={terminalPanelOpen}
-                                                                    disabled={!service.running_containers || !!project.error || controlsDisabled}
-                                                                    onClick={() => {
-                                                                        if (terminalPanelOpen) closeAutoTerminal(terminalPresetKey);
-                                                                        else {
-                                                                            setActiveTerminalPanel({
-                                                                                context: dockerContext, path: project.path, service: service.name,
-                                                                            });
-                                                                            setActiveMetrics(null);
-                                                                        }
-                                                                    }}
-                                                                ><Icon name="terminal" /></button>
-                                                                <button
-                                                                    type="button"
-                                                                    className={`icon-button${showLogs ? ' is-active' : ''}`}
-                                                                    aria-label={`${showLogs ? 'Fechar' : 'Exibir'} logs de ${service.name} de ${project.name}`}
-                                                                    title={showLogs ? 'Fechar logs' : 'Exibir logs'}
-                                                                    aria-expanded={showLogs}
-                                                                    onClick={() => {
-                                                                        setActiveLogPanel(showLogs ? null : { path: project.path, service: service.name });
-                                                                        setActiveMetrics(null);
-                                                                    }}
-                                                                ><Icon name="logs" /></button>
-                                                                <details className="popover menu service-tools-menu">
-                                                                    <summary className="icon-button" aria-label={`Mais ações do serviço ${service.name}`} title="Mais ações"><Icon name="more" /></summary>
-                                                                    <div className="popover-panel">
-                                                                        {service.image && <span className="menu-label service-image-menu-label" title={service.image}>Imagem · {service.image}</span>}
-                                                                        {hasContainerDetails && <button
-                                                                            className="menu-item service-metrics-toggle"
-                                                                            aria-label={`${showMetrics ? 'Fechar' : 'Exibir'} métricas de ${service.name} de ${project.name}`}
-                                                                            aria-expanded={showMetrics}
-                                                                            onClick={event => {
-                                                                                event.currentTarget.closest('details')?.removeAttribute('open');
-                                                                                setActiveMetrics(showMetrics ? null : { path: project.path, service: service.name });
-                                                                            }}
-                                                                        ><Icon name="chart" />{showMetrics ? 'Fechar consumo' : features.metrics ? 'Consumo e detalhes' : 'Detalhes'}</button>}
-                                                                        <button
-                                                                            className="menu-item service-log-toggle"
-                                                                            aria-label={`${showLogs ? 'Fechar' : 'Exibir'} logs de ${service.name} de ${project.name}`}
-                                                                            aria-expanded={showLogs}
-                                                                            onClick={event => {
-                                                                                event.currentTarget.closest('details')?.removeAttribute('open');
-                                                                                setActiveLogPanel(showLogs ? null : { path: project.path, service: service.name });
-                                                                            }}
-                                                                        ><Icon name="logs" />{showLogs ? 'Fechar logs' : 'Logs'}</button>
-                                                                        <button
-                                                                            className="menu-item"
-                                                                            aria-label={`Reiniciar serviço ${service.name} de ${project.name}`}
-                                                                            disabled={!service.running_containers || paused || !!project.error || controlsDisabled}
-                                                                            onClick={event => {
-                                                                                event.currentTarget.closest('details')?.removeAttribute('open');
-                                                                                void handleDockerAction(project.path, 'restart', [service.name]);
-                                                                            }}
-                                                                        ><Icon name="restart" />Reiniciar</button>
-                                                                        <button
-                                                                            className="menu-item"
-                                                                            aria-label={`Editar nome exibido de ${service.name}`}
-                                                                            onClick={event => {
-                                                                                event.currentTarget.closest('details')?.removeAttribute('open');
-                                                                                setEditingService({ path: project.path, service: service.name });
-                                                                                setServiceNameDraft(displayName === service.name ? '' : displayName);
-                                                                            }}
-                                                                        ><Icon name="edit" />Editar nome</button>
-                                                                    </div>
-                                                                </details>
-                                                                <button
-                                                                    type="button"
                                                                     className={`icon-button action-icon-button ${active && !paused ? 'is-danger' : 'is-start'}`}
                                                                     disabled={controlsDisabled || !!project.error}
                                                                     aria-label={serviceActionLabel}
                                                                     title={serviceBusyLabel || serviceActionLabel}
                                                                     aria-busy={!!serviceBusyLabel}
-                                                                    onClick={() => handleDockerAction(project.path, paused ? 'unpause' : active ? 'stop' : 'up', [service.name])}
+                                                                    onClick={() => handleDockerAction(
+                                                                        project.path, paused ? 'unpause' : active ? 'stop' : 'up', [service.name],
+                                                                    )}
                                                                 >
                                                                     {serviceBusyLabel
                                                                         ? <LoaderCircle className="action-spinner" size={16} aria-hidden="true" />
@@ -1961,6 +1935,97 @@ export default function App() {
                                                                             ? <Square size={16} strokeWidth={1.8} aria-hidden="true" />
                                                                             : <Play size={16} strokeWidth={1.8} aria-hidden="true" />}
                                                                 </button>
+                                                                <DropdownMenu>
+                                                                    <DropdownMenuTrigger
+                                                                        className="icon-button service-tools-menu"
+                                                                        aria-label={`Mais ações do serviço ${service.name}`}
+                                                                        title={`Mais ações do serviço ${service.name}`}
+                                                                        aria-busy={!!serviceBusyLabel}
+                                                                    >
+                                                                        {serviceBusyLabel
+                                                                            ? <LoaderCircle className="action-spinner" size={16} aria-hidden="true" />
+                                                                            : <MoreVertical size={16} aria-hidden="true" />}
+                                                                    </DropdownMenuTrigger>
+                                                                    <DropdownMenuContent align="end" className="w-56">
+                                                                        {service.image && (
+                                                                            <DropdownMenuLabel className="menu-label service-image-menu-label truncate" title={service.image}>
+                                                                                Imagem · {service.image}
+                                                                            </DropdownMenuLabel>
+                                                                        )}
+                                                                        {paused ? (
+                                                                            <>
+                                                                                <DropdownMenuItem
+                                                                                    className="menu-item"
+                                                                                    aria-label={`Retomar serviço ${service.name} de ${project.name}`}
+                                                                                    disabled={controlsDisabled || !!project.error}
+                                                                                    onSelect={() => void handleDockerAction(project.path, 'unpause', [service.name])}
+                                                                                ><Play size={14} />Retomar</DropdownMenuItem>
+                                                                                <DropdownMenuItem
+                                                                                    className="menu-item"
+                                                                                    aria-label={`Parar serviço ${service.name} de ${project.name}`}
+                                                                                    disabled={controlsDisabled || !!project.error}
+                                                                                    onSelect={() => void handleDockerAction(project.path, 'stop', [service.name])}
+                                                                                ><Square size={14} />Parar e liberar RAM</DropdownMenuItem>
+                                                                            </>
+                                                                        ) : (
+                                                                            <DropdownMenuItem
+                                                                                className="menu-item"
+                                                                                aria-label={`${active ? 'Parar' : 'Iniciar'} serviço ${service.name} de ${project.name}`}
+                                                                                disabled={controlsDisabled || !!project.error}
+                                                                                onSelect={() => void handleDockerAction(project.path, active ? 'stop' : 'up', [service.name])}
+                                                                            >{active ? <Square size={14} /> : <Play size={14} />}{active ? 'Parar e liberar RAM' : 'Iniciar'}</DropdownMenuItem>
+                                                                        )}
+                                                                        <DropdownMenuItem
+                                                                            className="menu-item"
+                                                                            aria-label={`Reiniciar serviço ${service.name} de ${project.name}`}
+                                                                            disabled={!service.running_containers || paused || !!project.error || controlsDisabled}
+                                                                            onSelect={() => void handleDockerAction(project.path, 'restart', [service.name])}
+                                                                        ><RotateCw size={14} />Reiniciar</DropdownMenuItem>
+                                                                        <DropdownMenuSeparator />
+                                                                        <DropdownMenuItem
+                                                                            className="menu-item"
+                                                                            aria-label={`${terminalPanelOpen ? 'Fechar' : 'Abrir'} terminal de ${service.name} de ${project.name}`}
+                                                                            disabled={!service.running_containers || !!project.error || controlsDisabled}
+                                                                            onSelect={() => {
+                                                                                if (terminalPanelOpen) closeAutoTerminal(terminalPresetKey);
+                                                                                else {
+                                                                                    setActiveTerminalPanel({
+                                                                                        context: dockerContext, path: project.path, service: service.name,
+                                                                                    });
+                                                                                    setActiveMetrics(null);
+                                                                                }
+                                                                            }}
+                                                                        ><Shell size={14} />{terminalPanelOpen ? 'Fechar terminal' : 'Abrir terminal'}</DropdownMenuItem>
+                                                                        <DropdownMenuItem
+                                                                            className="menu-item service-log-toggle"
+                                                                            aria-label={`${showLogs ? 'Fechar' : 'Exibir'} logs de ${service.name} de ${project.name}`}
+                                                                            aria-expanded={showLogs}
+                                                                            onSelect={() => {
+                                                                                setActiveLogPanel(showLogs ? null : { path: project.path, service: service.name });
+                                                                                setActiveMetrics(null);
+                                                                            }}
+                                                                        ><Icon name="logs" size={14} />{showLogs ? 'Fechar logs' : 'Exibir logs'}</DropdownMenuItem>
+                                                                        {hasContainerDetails && (
+                                                                            <DropdownMenuItem
+                                                                                className="menu-item service-metrics-toggle"
+                                                                                aria-label={`${showMetrics ? 'Fechar' : 'Exibir'} métricas de ${service.name} de ${project.name}`}
+                                                                                aria-expanded={showMetrics}
+                                                                                onSelect={() => setActiveMetrics(
+                                                                                    showMetrics ? null : { path: project.path, service: service.name },
+                                                                                )}
+                                                                            ><Icon name="chart" size={14} />{showMetrics ? 'Fechar consumo' : features.metrics ? 'Consumo e detalhes' : 'Detalhes'}</DropdownMenuItem>
+                                                                        )}
+                                                                        <DropdownMenuSeparator />
+                                                                        <DropdownMenuItem
+                                                                            className="menu-item"
+                                                                            aria-label={`Editar nome exibido de ${service.name}`}
+                                                                            onSelect={() => {
+                                                                                setEditingService({ path: project.path, service: service.name });
+                                                                                setServiceNameDraft(displayName === service.name ? '' : displayName);
+                                                                            }}
+                                                                        ><Icon name="edit" size={14} />Editar nome</DropdownMenuItem>
+                                                                    </DropdownMenuContent>
+                                                                </DropdownMenu>
                                                                 </div>
                                                             </div>
                                                             {(showLogs || terminalPanelOpen) && isExpanded && (
@@ -2001,32 +2066,47 @@ export default function App() {
                                         )}
 
                                         </div>
-                                    </article>
+                                        </aside>
+                                    </Card>
                                 );
                             })}
+                            {!visibleProjects.some(project => expandedProjects[project.path]) && (
+                                <div className="project-detail-placeholder" aria-live="polite">
+                                    <span className="detail-placeholder-mark"><Icon name="folder" size={20} /></span>
+                                    <h2>Escolha um projeto</h2>
+                                    <p>Os serviços, as portas e as ações do projeto aparecem aqui.</p>
+                                </div>
+                            )}
                         </div>
                     )}
-                </section> : (
-                    <Dashboard
-                        projects={projects}
-                        dockerContext={dockerContext}
-                        selection={currentDashboardSelection}
-                        projectOptions={projectOptions}
-                        serviceNames={serviceNames}
-                        metricsEnabled={features.metrics}
-                        semanticErrors={features.semanticErrors}
-                        busyPaths={dashboardBusyPaths}
-                        controlsDisabled={loading}
-                        activeTerminal={activeTerminalPanel}
-                        autoTerminalKeys={autoTerminalKeys}
-                        onAction={(path, service, action) => void handleDockerAction(path, action, [service])}
-                        onToggleTerminal={toggleDashboardTerminal}
-                        onCloseTerminal={(path, service) => closeAutoTerminal(
-                            terminalCommandPresetKey(dockerContext, path, service),
-                        )}
-                        onRemoveContainers={removeDashboardContainers}
-                    />
-                )}
+                </section>
+                </TabsContent>
+                <TabsContent
+                    value="dashboard"
+                    forceMount
+                    className="screen-tab-content data-[state=inactive]:hidden"
+                >
+                <Dashboard
+                    isActive={screen === 'dashboard'}
+                    projects={projects}
+                    dockerContext={dockerContext}
+                    selection={currentDashboardSelection}
+                    projectOptions={projectOptions}
+                    serviceNames={serviceNames}
+                    metricsEnabled={features.metrics}
+                    semanticErrors={features.semanticErrors}
+                    busyPaths={dashboardBusyPaths}
+                    controlsDisabled={loading}
+                    activeTerminal={activeTerminalPanel}
+                    autoTerminalKeys={autoTerminalKeys}
+                    onAction={(path, service, action) => void handleDockerAction(path, action, [service])}
+                    onToggleTerminal={toggleDashboardTerminal}
+                    onCloseTerminal={(path, service) => closeAutoTerminal(
+                        terminalCommandPresetKey(dockerContext, path, service),
+                    )}
+                    onRemoveContainers={removeDashboardContainers}
+                />
+                </TabsContent>
                 {terminalSessionKeys.some(key => !inlineTerminalKeys.has(key)) && (
                     <section className="active-terminal-sessions" aria-label="Terminais de serviços">
                         {terminalSessionKeys
@@ -2035,6 +2115,17 @@ export default function App() {
                     </section>
                 )}
             </div>
+            <TabsList className="screen-switcher app-dock" aria-label="Navegação principal">
+                <TabsTrigger
+                    value="projects"
+                    className={`button ${screen === 'projects' ? 'button-primary' : 'button-quiet'}`}
+                ><Icon name="folder" size={16} /><span>Projetos</span></TabsTrigger>
+                <TabsTrigger
+                    value="dashboard"
+                    className={`button ${screen === 'dashboard' ? 'button-primary' : 'button-quiet'}`}
+                ><Icon name="chart" size={16} /><span>Dashboard</span></TabsTrigger>
+            </TabsList>
+            </Tabs>
             {featureModalOpen && (
                 <div className="modal-backdrop" onMouseDown={event => {
                     if (event.target === event.currentTarget) setFeatureModalOpen(false);

@@ -1,7 +1,45 @@
 import { useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { filterLogLines, isLogError } from './workspace';
+import { ScrollArea } from './components/ui/scroll-area';
+
+function renderAnsiLine(line: string): ReactNode {
+    const tokens: { text: string; classes: string[] }[] = [];
+    const pattern = /\u001b\[([0-9;]*)m/g;
+    let activeClasses: string[] = [];
+    let previousIndex = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = pattern.exec(line)) !== null) {
+        if (match.index > previousIndex) {
+            tokens.push({ text: line.slice(previousIndex, match.index), classes: activeClasses });
+        }
+        for (const value of match[1].split(';')) {
+            const code = Number(value || 0);
+            if (code === 0) activeClasses = [];
+            else if (code === 1 && !activeClasses.includes('ansi-bold')) activeClasses = [...activeClasses, 'ansi-bold'];
+            else if (code === 22) activeClasses = activeClasses.filter(name => name !== 'ansi-bold');
+            else if (code === 39) activeClasses = activeClasses.filter(name => !name.startsWith('ansi-color-'));
+            else if ((code >= 30 && code <= 37) || (code >= 90 && code <= 97)) {
+                const color = code >= 90 ? code - 90 + 8 : code - 30;
+                activeClasses = [
+                    ...activeClasses.filter(name => !name.startsWith('ansi-color-')),
+                    `ansi-color-${color}`,
+                ];
+            }
+        }
+        previousIndex = pattern.lastIndex;
+    }
+
+    if (previousIndex < line.length) {
+        tokens.push({ text: line.slice(previousIndex), classes: activeClasses });
+    }
+    return tokens.map((token, index) => (
+        <span key={index} className={token.classes.join(' ') || undefined}>{token.text}</span>
+    ));
+}
 
 interface Props {
     projectPath: string;
@@ -126,21 +164,26 @@ export default function ServiceLogs({
             </div>
             {exportMessage && <p className="utility-feedback" role="status">{exportMessage}</p>}
             {error && <div className="project-error" role="alert">{error}</div>}
-            <div
-                className="log-output"
-                ref={outputRef}
-                tabIndex={0}
-                aria-label={`Saída dos logs de ${service}`}
+            <ScrollArea
+                className="log-output-scroll-area"
+                viewportProps={{
+                    className: 'log-output',
+                    ref: outputRef,
+                    tabIndex: 0,
+                    'aria-label': `Saída dos logs de ${service}`,
+                }}
             >
-                {visibleLines.length === 0 ? (
-                    <p className="log-empty">{lines.length ? 'Nenhuma linha corresponde aos filtros.' : 'Nenhum log recebido deste serviço.'}</p>
-                ) : visibleLines.map((line, index) => (
-                    <div key={index} className={`log-line${isLogError(line) ? ' log-error' : ''}`}>
-                        <span className="log-index">{String(index + 1).padStart(2, '0')}</span>
-                        <span>{line}</span>
-                    </div>
-                ))}
-            </div>
+                <div className="log-lines">
+                    {visibleLines.length === 0 ? (
+                        <p className="log-empty">{lines.length ? 'Nenhuma linha corresponde aos filtros.' : 'Nenhum log recebido deste serviço.'}</p>
+                    ) : visibleLines.map((line, index) => (
+                        <div key={index} className={`log-line${isLogError(line) ? ' log-error' : ''}`}>
+                            <span className="log-index">{String(index + 1).padStart(2, '0')}</span>
+                            <span className="log-content">{renderAnsiLine(line)}</span>
+                        </div>
+                    ))}
+                </div>
+            </ScrollArea>
         </section>
     );
 }

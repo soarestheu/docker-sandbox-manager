@@ -1,0 +1,434 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-12T09:41:24.603-03:00",
+  "title": "Design System: Docker Sandbox Manager",
+  "extensions": {
+    "colorMeta": {
+      "obsidian-base": {
+        "role": "neutral",
+        "displayName": "Obsidian Black",
+        "canonical": "#090a0d",
+        "tonalRamp": ["oklch(15% 0.004 270)", "oklch(22% 0.004 270)", "oklch(30% 0.004 270)", "oklch(39% 0.004 270)", "oklch(49% 0.004 270)", "oklch(61% 0.004 270)", "oklch(77% 0.003 270)", "oklch(95% 0.002 270)"]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Obsidian Surface",
+        "canonical": "#101116",
+        "tonalRamp": ["oklch(15% 0.004 270)", "oklch(22% 0.004 270)", "oklch(30% 0.004 270)", "oklch(39% 0.004 270)", "oklch(49% 0.004 270)", "oklch(61% 0.004 270)", "oklch(77% 0.003 270)", "oklch(95% 0.002 270)"]
+      },
+      "surface-raised": {
+        "role": "neutral",
+        "displayName": "Raised Obsidian",
+        "canonical": "#17191f",
+        "tonalRamp": ["oklch(17% 0.006 270)", "oklch(24% 0.006 270)", "oklch(32% 0.006 270)", "oklch(41% 0.006 270)", "oklch(51% 0.005 270)", "oklch(63% 0.004 270)", "oklch(79% 0.003 270)", "oklch(95% 0.002 270)"]
+      },
+      "surface-muted": {
+        "role": "neutral",
+        "displayName": "Muted Obsidian",
+        "canonical": "#0e1014",
+        "tonalRamp": ["oklch(15% 0.004 270)", "oklch(22% 0.004 270)", "oklch(30% 0.004 270)", "oklch(39% 0.004 270)", "oklch(49% 0.004 270)", "oklch(61% 0.004 270)", "oklch(77% 0.003 270)", "oklch(95% 0.002 270)"]
+      },
+      "text-primary": {
+        "role": "neutral",
+        "displayName": "Cool White",
+        "canonical": "#f0f1f5",
+        "tonalRamp": ["oklch(17% 0.004 270)", "oklch(25% 0.004 270)", "oklch(34% 0.004 270)", "oklch(44% 0.004 270)", "oklch(55% 0.004 270)", "oklch(68% 0.003 270)", "oklch(82% 0.002 270)", "oklch(96% 0.002 270)"]
+      },
+      "text-muted": {
+        "role": "neutral",
+        "displayName": "Muted Gray",
+        "canonical": "#a0a3ae",
+        "tonalRamp": ["oklch(17% 0.004 270)", "oklch(25% 0.004 270)", "oklch(34% 0.004 270)", "oklch(44% 0.004 270)", "oklch(55% 0.004 270)", "oklch(68% 0.003 270)", "oklch(82% 0.002 270)", "oklch(96% 0.002 270)"]
+      },
+      "text-subtle": {
+        "role": "neutral",
+        "displayName": "Subtle Gray",
+        "canonical": "#858995",
+        "tonalRamp": ["oklch(17% 0.004 270)", "oklch(25% 0.004 270)", "oklch(34% 0.004 270)", "oklch(44% 0.004 270)", "oklch(55% 0.004 270)", "oklch(68% 0.003 270)", "oklch(82% 0.002 270)", "oklch(96% 0.002 270)"]
+      },
+      "divider": {
+        "role": "neutral",
+        "displayName": "Fine Divider",
+        "canonical": "rgba(255, 255, 255, 0.1)",
+        "tonalRamp": ["oklch(15% 0.004 270)", "oklch(22% 0.004 270)", "oklch(30% 0.004 270)", "oklch(39% 0.004 270)", "oklch(49% 0.004 270)", "oklch(61% 0.004 270)", "oklch(77% 0.003 270)", "oklch(95% 0.002 270)"]
+      },
+      "divider-soft": {
+        "role": "neutral",
+        "displayName": "Soft Divider",
+        "canonical": "rgba(255, 255, 255, 0.055)",
+        "tonalRamp": ["oklch(15% 0.004 270)", "oklch(22% 0.004 270)", "oklch(30% 0.004 270)", "oklch(39% 0.004 270)", "oklch(49% 0.004 270)", "oklch(61% 0.004 270)", "oklch(77% 0.003 270)", "oklch(95% 0.002 270)"]
+      },
+      "accent-lavender": {
+        "role": "primary",
+        "displayName": "Indigo Lavender",
+        "canonical": "#a2adff",
+        "tonalRamp": ["oklch(15% 0.035 277)", "oklch(23% 0.045 277)", "oklch(32% 0.055 277)", "oklch(42% 0.07 277)", "oklch(53% 0.085 277)", "oklch(65% 0.09 277)", "oklch(79% 0.06 277)", "oklch(95% 0.015 277)"]
+      },
+      "accent-wash": {
+        "role": "primary",
+        "displayName": "Lavender Wash",
+        "canonical": "rgba(162, 173, 255, 0.1)",
+        "tonalRamp": ["oklch(15% 0.035 277)", "oklch(23% 0.045 277)", "oklch(32% 0.055 277)", "oklch(42% 0.07 277)", "oklch(53% 0.085 277)", "oklch(65% 0.09 277)", "oklch(79% 0.06 277)", "oklch(95% 0.015 277)"]
+      },
+      "accent-selected": {
+        "role": "primary",
+        "displayName": "Selected Lavender",
+        "canonical": "#c5cbff",
+        "tonalRamp": ["oklch(15% 0.035 277)", "oklch(23% 0.045 277)", "oklch(32% 0.055 277)", "oklch(42% 0.07 277)", "oklch(53% 0.085 277)", "oklch(65% 0.09 277)", "oklch(79% 0.06 277)", "oklch(95% 0.015 277)"]
+      },
+      "dock-active-wash": {
+        "role": "primary",
+        "displayName": "Dock Active Wash",
+        "canonical": "rgba(162, 173, 255, 0.14)",
+        "tonalRamp": ["oklch(15% 0.035 277)", "oklch(23% 0.045 277)", "oklch(32% 0.055 277)", "oklch(42% 0.07 277)", "oklch(53% 0.085 277)", "oklch(65% 0.09 277)", "oklch(79% 0.06 277)", "oklch(95% 0.015 277)"]
+      },
+      "dock-selected": {
+        "role": "primary",
+        "displayName": "Dock Selected Text",
+        "canonical": "#c7ceff",
+        "tonalRamp": ["oklch(15% 0.035 277)", "oklch(23% 0.045 277)", "oklch(32% 0.055 277)", "oklch(42% 0.07 277)", "oklch(53% 0.085 277)", "oklch(65% 0.09 277)", "oklch(79% 0.06 277)", "oklch(95% 0.015 277)"]
+      },
+      "accent-action": {
+        "role": "primary",
+        "displayName": "Soft Action Lavender",
+        "canonical": "#dce0ff",
+        "tonalRamp": ["oklch(15% 0.035 277)", "oklch(23% 0.045 277)", "oklch(32% 0.055 277)", "oklch(42% 0.07 277)", "oklch(53% 0.085 277)", "oklch(65% 0.09 277)", "oklch(79% 0.06 277)", "oklch(95% 0.015 277)"]
+      },
+      "accent-action-hover": {
+        "role": "primary",
+        "displayName": "Action Lavender Hover",
+        "canonical": "#edf0ff",
+        "tonalRamp": ["oklch(15% 0.035 277)", "oklch(23% 0.045 277)", "oklch(32% 0.055 277)", "oklch(42% 0.07 277)", "oklch(53% 0.085 277)", "oklch(65% 0.09 277)", "oklch(79% 0.06 277)", "oklch(95% 0.015 277)"]
+      },
+      "accent-action-text": {
+        "role": "neutral",
+        "displayName": "Action Ink",
+        "canonical": "#10111a",
+        "tonalRamp": ["oklch(15% 0.004 270)", "oklch(22% 0.004 270)", "oklch(30% 0.004 270)", "oklch(39% 0.004 270)", "oklch(49% 0.004 270)", "oklch(61% 0.004 270)", "oklch(77% 0.003 270)", "oklch(95% 0.002 270)"]
+      },
+      "status-green": {
+        "role": "secondary",
+        "displayName": "Quiet Green",
+        "canonical": "#63d7a3",
+        "tonalRamp": ["oklch(15% 0.025 155)", "oklch(23% 0.04 155)", "oklch(32% 0.055 155)", "oklch(42% 0.075 155)", "oklch(53% 0.095 155)", "oklch(65% 0.105 155)", "oklch(79% 0.07 155)", "oklch(95% 0.015 155)"]
+      },
+      "status-cyan": {
+        "role": "secondary",
+        "displayName": "Cool Cyan",
+        "canonical": "#8acde0",
+        "tonalRamp": ["oklch(15% 0.025 210)", "oklch(23% 0.04 210)", "oklch(32% 0.055 210)", "oklch(42% 0.075 210)", "oklch(53% 0.095 210)", "oklch(65% 0.105 210)", "oklch(79% 0.07 210)", "oklch(95% 0.015 210)"]
+      },
+      "dashboard-cpu": {
+        "role": "secondary",
+        "displayName": "CPU Indigo",
+        "canonical": "#aab4ff",
+        "tonalRamp": ["oklch(15% 0.035 277)", "oklch(23% 0.045 277)", "oklch(32% 0.055 277)", "oklch(42% 0.07 277)", "oklch(53% 0.085 277)", "oklch(65% 0.09 277)", "oklch(79% 0.06 277)", "oklch(95% 0.015 277)"]
+      },
+      "dashboard-memory": {
+        "role": "secondary",
+        "displayName": "Memory Green",
+        "canonical": "#79dcb2",
+        "tonalRamp": ["oklch(15% 0.025 155)", "oklch(23% 0.04 155)", "oklch(32% 0.055 155)", "oklch(42% 0.075 155)", "oklch(53% 0.095 155)", "oklch(65% 0.105 155)", "oklch(79% 0.07 155)", "oklch(95% 0.015 155)"]
+      },
+      "status-danger": {
+        "role": "tertiary",
+        "displayName": "Soft Coral",
+        "canonical": "#ff8293",
+        "tonalRamp": ["oklch(15% 0.035 15)", "oklch(23% 0.05 15)", "oklch(32% 0.07 15)", "oklch(42% 0.09 15)", "oklch(53% 0.11 15)", "oklch(65% 0.12 15)", "oklch(79% 0.08 15)", "oklch(95% 0.02 15)"]
+      },
+      "action-danger": {
+        "role": "tertiary",
+        "displayName": "Destructive Coral",
+        "canonical": "#f08a94",
+        "tonalRamp": ["oklch(15% 0.035 15)", "oklch(23% 0.05 15)", "oklch(32% 0.07 15)", "oklch(42% 0.09 15)", "oklch(53% 0.11 15)", "oklch(65% 0.12 15)", "oklch(79% 0.08 15)", "oklch(95% 0.02 15)"]
+      },
+      "status-warning": {
+        "role": "tertiary",
+        "displayName": "Warm Amber",
+        "canonical": "#f1c97a",
+        "tonalRamp": ["oklch(15% 0.03 85)", "oklch(23% 0.045 85)", "oklch(32% 0.06 85)", "oklch(42% 0.08 85)", "oklch(53% 0.1 85)", "oklch(65% 0.11 85)", "oklch(79% 0.075 85)", "oklch(95% 0.015 85)"]
+      },
+      "card-wash": {
+        "role": "neutral",
+        "displayName": "Metric Card Wash",
+        "canonical": "rgba(15, 16, 21, 0.82)",
+        "tonalRamp": ["oklch(15% 0.004 270)", "oklch(22% 0.004 270)", "oklch(30% 0.004 270)", "oklch(39% 0.004 270)", "oklch(49% 0.004 270)", "oklch(61% 0.004 270)", "oklch(77% 0.003 270)", "oklch(95% 0.002 270)"]
+      },
+      "control-surface": {
+        "role": "neutral",
+        "displayName": "Control Surface",
+        "canonical": "rgba(16, 17, 22, 0.88)",
+        "tonalRamp": ["oklch(15% 0.004 270)", "oklch(22% 0.004 270)", "oklch(30% 0.004 270)", "oklch(39% 0.004 270)", "oklch(49% 0.004 270)", "oklch(61% 0.004 270)", "oklch(77% 0.003 270)", "oklch(95% 0.002 270)"]
+      },
+      "console-surface": {
+        "role": "neutral",
+        "displayName": "Console Well",
+        "canonical": "#0b0c10",
+        "tonalRamp": ["oklch(15% 0.004 270)", "oklch(22% 0.004 270)", "oklch(30% 0.004 270)", "oklch(39% 0.004 270)", "oklch(49% 0.004 270)", "oklch(61% 0.004 270)", "oklch(77% 0.003 270)", "oklch(95% 0.002 270)"]
+      },
+      "console-text": {
+        "role": "neutral",
+        "displayName": "Console Text",
+        "canonical": "#d0d1d8",
+        "tonalRamp": ["oklch(17% 0.004 270)", "oklch(25% 0.004 270)", "oklch(34% 0.004 270)", "oklch(44% 0.004 270)", "oklch(55% 0.004 270)", "oklch(68% 0.003 270)", "oklch(82% 0.002 270)", "oklch(96% 0.002 270)"]
+      },
+      "light-base": {
+        "role": "neutral",
+        "displayName": "Cool Light Background",
+        "canonical": "#f1f4f8",
+        "tonalRamp": ["oklch(15% 0.004 260)", "oklch(22% 0.004 260)", "oklch(30% 0.004 260)", "oklch(39% 0.004 260)", "oklch(49% 0.004 260)", "oklch(61% 0.004 260)", "oklch(77% 0.003 260)", "oklch(95% 0.002 260)"]
+      },
+      "light-surface": {
+        "role": "neutral",
+        "displayName": "Light Surface",
+        "canonical": "#ffffff",
+        "tonalRamp": ["oklch(15% 0.004 260)", "oklch(22% 0.004 260)", "oklch(30% 0.004 260)", "oklch(39% 0.004 260)", "oklch(49% 0.004 260)", "oklch(61% 0.004 260)", "oklch(77% 0.003 260)", "oklch(95% 0.002 260)"]
+      },
+      "light-text": {
+        "role": "neutral",
+        "displayName": "Light Theme Ink",
+        "canonical": "#1c2738",
+        "tonalRamp": ["oklch(15% 0.006 260)", "oklch(22% 0.006 260)", "oklch(30% 0.006 260)", "oklch(39% 0.006 260)", "oklch(49% 0.006 260)", "oklch(61% 0.005 260)", "oklch(77% 0.004 260)", "oklch(95% 0.002 260)"]
+      },
+      "light-metric-text": {
+        "role": "neutral",
+        "displayName": "Light Metric Ink",
+        "canonical": "#20232c",
+        "tonalRamp": ["oklch(15% 0.006 260)", "oklch(22% 0.006 260)", "oklch(30% 0.006 260)", "oklch(39% 0.006 260)", "oklch(49% 0.006 260)", "oklch(61% 0.005 260)", "oklch(77% 0.004 260)", "oklch(95% 0.002 260)"]
+      },
+      "light-text-muted": {
+        "role": "neutral",
+        "displayName": "Light Muted Text",
+        "canonical": "#5b687b",
+        "tonalRamp": ["oklch(15% 0.006 260)", "oklch(22% 0.006 260)", "oklch(30% 0.006 260)", "oklch(39% 0.006 260)", "oklch(49% 0.006 260)", "oklch(61% 0.005 260)", "oklch(77% 0.004 260)", "oklch(95% 0.002 260)"]
+      },
+      "light-text-subtle": {
+        "role": "neutral",
+        "displayName": "Light Subtle Text",
+        "canonical": "#59677a",
+        "tonalRamp": ["oklch(15% 0.006 260)", "oklch(22% 0.006 260)", "oklch(30% 0.006 260)", "oklch(39% 0.006 260)", "oklch(49% 0.006 260)", "oklch(61% 0.005 260)", "oklch(77% 0.004 260)", "oklch(95% 0.002 260)"]
+      },
+      "light-accent": {
+        "role": "primary",
+        "displayName": "Light Theme Blue",
+        "canonical": "#2867bd",
+        "tonalRamp": ["oklch(15% 0.04 255)", "oklch(23% 0.06 255)", "oklch(32% 0.08 255)", "oklch(42% 0.1 255)", "oklch(53% 0.12 255)", "oklch(65% 0.12 255)", "oklch(79% 0.08 255)", "oklch(95% 0.02 255)"]
+      },
+      "light-green": {
+        "role": "secondary",
+        "displayName": "Light Theme Green",
+        "canonical": "#17885e",
+        "tonalRamp": ["oklch(15% 0.025 155)", "oklch(23% 0.04 155)", "oklch(32% 0.055 155)", "oklch(42% 0.075 155)", "oklch(53% 0.095 155)", "oklch(65% 0.105 155)", "oklch(79% 0.07 155)", "oklch(95% 0.015 155)"]
+      },
+      "dashboard-cpu-light": {
+        "role": "secondary",
+        "displayName": "Light CPU Indigo",
+        "canonical": "#5866c5",
+        "tonalRamp": ["oklch(15% 0.04 255)", "oklch(23% 0.06 255)", "oklch(32% 0.08 255)", "oklch(42% 0.1 255)", "oklch(53% 0.12 255)", "oklch(65% 0.12 255)", "oklch(79% 0.08 255)", "oklch(95% 0.02 255)"]
+      },
+      "dashboard-memory-light": {
+        "role": "secondary",
+        "displayName": "Light Memory Green",
+        "canonical": "#21815d",
+        "tonalRamp": ["oklch(15% 0.025 155)", "oklch(23% 0.04 155)", "oklch(32% 0.055 155)", "oklch(42% 0.075 155)", "oklch(53% 0.095 155)", "oklch(65% 0.105 155)", "oklch(79% 0.07 155)", "oklch(95% 0.015 155)"]
+      },
+      "dashboard-ports-light": {
+        "role": "secondary",
+        "displayName": "Light Port Cyan",
+        "canonical": "#26758a",
+        "tonalRamp": ["oklch(15% 0.025 210)", "oklch(23% 0.04 210)", "oklch(32% 0.055 210)", "oklch(42% 0.075 210)", "oklch(53% 0.095 210)", "oklch(65% 0.105 210)", "oklch(79% 0.07 210)", "oklch(95% 0.015 210)"]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Screen Title",
+        "purpose": "Projects and Dashboard page headings."
+      },
+      "title": {
+        "displayName": "Project and Service Title",
+        "purpose": "Compact names inside project and service rows."
+      },
+      "body": {
+        "displayName": "Supporting Text",
+        "purpose": "Descriptions and operational helper copy."
+      },
+      "label": {
+        "displayName": "Control Label",
+        "purpose": "Compact actions, controls, and navigation."
+      },
+      "field": {
+        "displayName": "Form Field",
+        "purpose": "Compact editable text controls."
+      },
+      "log": {
+        "displayName": "Log Output",
+        "purpose": "Technical log lines in the bundled JetBrains Mono family."
+      }
+    },
+    "shadows": [
+      {
+        "name": "popover",
+        "value": "0 14px 36px rgba(0, 0, 0, 0.35)",
+        "purpose": "Separate menus from the page."
+      },
+      {
+        "name": "navigation-dock",
+        "value": "0 12px 32px rgba(0, 0, 0, 0.34)",
+        "purpose": "Lift the floating screen switcher."
+      },
+      {
+        "name": "selection-bar",
+        "value": "0 16px 40px rgba(0, 0, 0, 0.4)",
+        "purpose": "Separate batch actions from the content beneath them."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-transition",
+        "value": "160ms ease",
+        "purpose": "Color, border, opacity, and position changes on controls."
+      },
+      {
+        "name": "detail-reveal",
+        "value": "220ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Reveal the selected project detail pane."
+      },
+      {
+        "name": "menu-reveal",
+        "value": "150ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Reveal open popover menus."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "compact",
+        "value": "900px"
+      },
+      {
+        "name": "mobile",
+        "value": "760px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "High-contrast action for the main available operation.",
+      "html": "<button class=\"ds-button-primary\">Varrer diretório</button>",
+      "css": ".ds-button-primary { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; padding: 0 15px; border: 1px solid rgba(162, 173, 255, 0.24); border-radius: 8px; background: #dce0ff; color: #10111a; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 11px; font-weight: 600; cursor: pointer; transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease; } .ds-button-primary:hover { border-color: rgba(226, 229, 255, 0.8); background: #edf0ff; transform: translateY(-1px); } .ds-button-primary:focus-visible { outline: 2px solid #9eabff; outline-offset: 2px; } .ds-button-primary:active { transform: translateY(1px); }"
+    },
+    {
+      "name": "Quiet Button",
+      "kind": "button",
+      "refersTo": "button-quiet",
+      "description": "Secondary action that stays low emphasis until hovered.",
+      "html": "<button class=\"ds-button-quiet\">Atualizar métricas</button>",
+      "css": ".ds-button-quiet { min-height: 34px; display: inline-flex; align-items: center; justify-content: center; padding: 0 12px; border: 1px solid rgba(126, 146, 175, 0.17); border-radius: 8px; background: transparent; color: #a0a3ae; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 11px; font-weight: 600; cursor: pointer; transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease; } .ds-button-quiet:hover { border-color: rgba(255, 255, 255, 0.1); background: rgba(255, 255, 255, 0.065); color: #f0f1f5; } .ds-button-quiet:focus-visible { outline: 2px solid #9eabff; outline-offset: 2px; } .ds-button-quiet:active { transform: translateY(1px); }"
+    },
+    {
+      "name": "Destructive Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Coral treatment for stop, remove, and other destructive actions.",
+      "html": "<button class=\"ds-button-danger\">Parar</button>",
+      "css": ".ds-button-danger { min-height: 34px; display: inline-flex; align-items: center; justify-content: center; padding: 0 12px; border: 1px solid rgba(255, 116, 128, 0.22); border-radius: 8px; background: rgba(255, 116, 128, 0.09); color: #f08a94; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 11px; font-weight: 600; cursor: pointer; transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease; } .ds-button-danger:hover { background: rgba(255, 116, 128, 0.16); } .ds-button-danger:focus-visible { outline: 2px solid #9eabff; outline-offset: 2px; }"
+    },
+    {
+      "name": "Form Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Compact text field used for project, settings, and terminal input.",
+      "html": "<input class=\"ds-input\" aria-label=\"Comando no terminal\">",
+      "css": ".ds-input { width: 100%; min-width: 0; min-height: 34px; padding: 7px 10px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; background: rgba(16, 17, 22, 0.88); color: #f0f1f5; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 11px; } .ds-input::placeholder { color: #858995; } .ds-input:hover { border-color: rgba(255, 255, 255, 0.17); } .ds-input:focus-visible { outline: 2px solid #9eabff; outline-offset: 2px; }"
+    },
+    {
+      "name": "Active Filter Chip",
+      "kind": "chip",
+      "refersTo": "chip-active",
+      "description": "Selected status or favorites filter.",
+      "html": "<button class=\"ds-chip\" aria-pressed=\"true\">Em execução</button>",
+      "css": ".ds-chip { min-height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 1px solid rgba(162, 173, 255, 0.16); border-radius: 7px; background: rgba(162, 173, 255, 0.1); color: #c5cbff; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 12px; cursor: pointer; transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease; } .ds-chip:hover { background: rgba(255, 255, 255, 0.05); color: #f0f1f5; } .ds-chip:focus-visible { outline: 2px solid #9eabff; outline-offset: 2px; } .ds-chip span { color: #a2adff; font-size: 11px; }"
+    },
+    {
+      "name": "Navigation Dock",
+      "kind": "nav",
+      "refersTo": "navigation-dock",
+      "description": "Floating switcher between Projects and Dashboard.",
+      "html": "<nav class=\"ds-dock\" aria-label=\"Navegação principal\"><button class=\"ds-dock-button ds-is-current\" aria-current=\"page\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z\"/></svg><span>Projetos</span></button><button class=\"ds-dock-button\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M5 20v-8M12 20V5M19 20v-5\"/></svg><span>Dashboard</span></button></nav>",
+      "css": ".ds-dock { position: fixed; z-index: 90; bottom: 18px; left: 50%; display: flex; width: max-content; max-width: calc(100vw - 24px); gap: 4px; padding: 5px; border: 1px solid rgba(255, 255, 255, 0.11); border-radius: 12px; background: rgba(17, 18, 23, 0.84); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34); backdrop-filter: blur(20px) saturate(140%); transform: translateX(-50%); } .ds-dock-button { min-width: 126px; min-height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 14px; border: 0; border-radius: 8px; background: transparent; color: #a0a3ae; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 11px; font-weight: 560; cursor: pointer; } .ds-dock-button:hover { background: rgba(255, 255, 255, 0.055); color: #f0f1f5; } .ds-dock-button.ds-is-current { background: rgba(162, 173, 255, 0.14); color: #c7ceff; } .ds-dock-button:focus-visible { outline: 2px solid #9eabff; outline-offset: 2px; } .ds-dock-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; } @media (max-width: 760px) { .ds-dock { top: max(2px, env(safe-area-inset-top)); right: 12px; bottom: auto; left: auto; transform: none; } .ds-dock-button { width: 36px; min-width: 0; flex: 1; padding: 0; } .ds-dock-button span { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; } }"
+    },
+    {
+      "name": "Project Split Pane",
+      "kind": "custom",
+      "refersTo": "project-detail-pane",
+      "description": "Asymmetric project list with selected-project details at the right.",
+      "html": "<section class=\"ds-project-workspace\"><article class=\"ds-project-row ds-is-selected\"><strong>Project</strong><small>Services and status</small></article><aside class=\"ds-project-detail\"><strong>Services</strong><p>Project details and service controls</p></aside></section>",
+      "css": ".ds-project-workspace { position: relative; display: grid; grid-template-columns: minmax(250px, 42fr) minmax(0, 58fr); gap: 12px; min-height: 440px; } .ds-project-row { grid-column: 1; min-height: 78px; display: flex; flex-direction: column; gap: 6px; padding: 12px 11px; border: 1px solid rgba(255, 255, 255, 0.055); border-radius: 10px; background: rgba(15, 16, 21, 0.78); color: #f0f1f5; font: 600 13px Inter, ui-sans-serif, system-ui, sans-serif; } .ds-project-row small { color: #858995; font-size: 10px; font-weight: 400; } .ds-project-row.ds-is-selected { border-color: rgba(162, 173, 255, 0.36); background: rgba(39, 41, 58, 0.5); } .ds-project-detail { position: absolute; z-index: 8; inset: 0 0 auto calc(42% + 6px); height: min(74vh, 760px); min-height: min(440px, 68vh); overflow: auto; padding: 14px; border: 1px solid rgba(255, 255, 255, 0.075); border-radius: 12px; background: rgba(15, 16, 21, 0.9); color: #f0f1f5; } .ds-project-detail p { color: #a0a3ae; font-size: 12px; } @media (max-width: 760px) { .ds-project-workspace { grid-template-columns: minmax(0, 1fr); min-height: 0; } .ds-project-row { grid-column: 1; } .ds-project-detail { position: static; height: auto; min-height: 0; margin-top: 8px; } }"
+    },
+    {
+      "name": "Dashboard Metric",
+      "kind": "card",
+      "refersTo": "dashboard-metric",
+      "description": "One of three selected-service KPI cards.",
+      "html": "<article class=\"ds-kpi\"><div class=\"ds-kpi-heading\"><span class=\"ds-kpi-icon\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><rect x=\"7\" y=\"7\" width=\"10\" height=\"10\" rx=\"2\"/><path d=\"M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3M10 10h4v4h-4z\"/></svg></span><span>CPU</span></div><strong>—</strong><svg class=\"ds-kpi-sparkline\" viewBox=\"0 0 100 32\" aria-hidden=\"true\"><polyline points=\"\"/></svg><small>Aguardando leitura de métricas</small></article>",
+      "css": ".ds-kpi { --kpi-color: #aab4ff; min-height: 138px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 16px; border: 1px solid rgba(255, 255, 255, 0.055); border-radius: 12px; background: rgba(15, 16, 21, 0.82); color: #f2f2f5; } .ds-kpi-heading { display: flex; align-items: center; gap: 9px; color: #a0a3ae; font: 600 11px Inter, ui-sans-serif, system-ui, sans-serif; } .ds-kpi-icon { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--kpi-color) 25%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--kpi-color) 10%, transparent); color: var(--kpi-color); } .ds-kpi-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; } .ds-kpi strong { grid-column: 2; grid-row: 1; font: 580 25px/1.1 Inter, ui-sans-serif, system-ui, sans-serif; font-variant-numeric: tabular-nums; } .ds-kpi-sparkline { grid-column: 2; grid-row: 2; width: 96px; height: 30px; overflow: visible; } .ds-kpi-sparkline polyline { fill: none; stroke: var(--kpi-color); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; } .ds-kpi small { grid-column: 1 / -1; color: #858995; font: 10px/1.4 Inter, ui-sans-serif, system-ui, sans-serif; }"
+    },
+    {
+      "name": "Log Output",
+      "kind": "custom",
+      "refersTo": "log-output",
+      "description": "Scrollable service log stream with subdued line numbers.",
+      "html": "<section class=\"ds-log-panel\"><header class=\"ds-log-header\"><span>Logs do serviço · Capturando</span></header><div class=\"ds-log-output\"><p>Nenhum log recebido deste serviço.</p></div></section>",
+      "css": ".ds-log-panel { overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.055); border-radius: 10px; background: #0b0c10; } .ds-log-header { min-height: 42px; display: flex; align-items: center; padding: 0 15px; border-bottom: 1px solid rgba(255, 255, 255, 0.055); color: #d0d1d8; font: 10px Inter, ui-sans-serif, system-ui, sans-serif; } .ds-log-output { max-height: 320px; overflow-y: auto; padding: 12px 14px 14px; background: #090a0d; color: #d0d1d8; font: 11px/1.7 'JetBrains Mono', SFMono-Regular, Consolas, monospace; scrollbar-color: #3a3b45 #090a0d; scrollbar-width: thin; } .ds-log-output p { margin: 0; }"
+    },
+    {
+      "name": "Terminal Output",
+      "kind": "custom",
+      "refersTo": "terminal-output",
+      "description": "Dark monospace shell transcript and command-entry context.",
+      "html": "<section class=\"ds-terminal-panel\"><pre class=\"ds-terminal-output\">Digite um comando para começar.</pre><form class=\"ds-terminal-prompt\"><label for=\"ds-terminal-command\">$</label><input id=\"ds-terminal-command\" aria-label=\"Comando no terminal\"><button>Executar</button></form></section>",
+      "css": ".ds-terminal-panel { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 14px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; background: #0b0c10; } .ds-terminal-output { min-height: 120px; max-height: 320px; overflow: auto; margin: 0; padding: 12px; border: 1px solid rgba(255, 255, 255, 0.055); border-radius: 8px; background: #090a0d; color: #d0d1d8; font: 11px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; } .ds-terminal-prompt { display: flex; align-items: center; gap: 8px; color: #63d7a3; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; } .ds-terminal-prompt input { min-width: 0; min-height: 34px; flex: 1; padding: 7px 10px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; background: rgba(16, 17, 22, 0.88); color: #f0f1f5; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; } .ds-terminal-prompt input:focus-visible { outline: 2px solid #9eabff; outline-offset: 2px; } .ds-terminal-prompt button { min-height: 40px; padding: 0 15px; border: 1px solid rgba(162, 173, 255, 0.24); border-radius: 8px; background: #dce0ff; color: #10111a; font: 600 11px Inter, ui-sans-serif, system-ui, sans-serif; cursor: pointer; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Deep Obsidian Workbench",
+    "overview": "Deep Obsidian is a local operations workbench for Docker Compose projects: an almost-black canvas, subtle indigo and cool-teal radial light, fine low-contrast borders, and restrained color for selection and service state. The interface prioritizes scanning and context retention over decoration. Projects sit beside their open service/detail pane, while a compact floating dock switches between Projects and Dashboard. Dark is the initial theme; a light theme is also implemented.\n\nThe typography and controls stay compact so project and service status remain easy to scan. On desktop, projects use an asymmetric list-and-detail arrangement; on narrow screens, the detail pane flows below its project and the dock moves to the upper-right reserved header area. This document describes the shipped visual language, not additional product capabilities.",
+    "keyCharacteristics": [
+      "Near-black surfaces with restrained radial light and fine dividers.",
+      "Lavender selection, with green, cyan, amber, and coral reserved for semantic status or metric cues.",
+      "Compact controls and an asymmetric project-to-detail workspace."
+    ],
+    "rules": [
+      {
+        "name": "The Accent-as-State Rule",
+        "body": "Keep lavender concentrated on selected, focused, or primary-action states; use green, cyan, amber, and coral for their existing semantic roles rather than as decoration.",
+        "section": "colors"
+      },
+      {
+        "name": "The Readable-State Rule",
+        "body": "Keep labels and state text distinct from subdued metadata; do not make operational status depend on color alone.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat-Card Rule",
+        "body": "Keep project, service, and metric cards flat at rest; use borders and tonal layering, not card shadows, to establish their edges.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do keep lavender concentrated on selection, focus, and primary-action states.",
+      "Do use fine borders and tonal surfaces before adding shadows to cards.",
+      "Do preserve the asymmetric project/detail relationship on desktop and its in-flow mobile form.",
+      "Do keep KPI colors paired with their established CPU, memory, and port roles.",
+      "Do retain a dark console surface for logs and terminal output in both themes."
+    ],
+    "donts": [
+      "Don't replace the pinned Deep Obsidian world with a bright, high-chroma interface.",
+      "Don't add shadows to ordinary project, service, or metric cards.",
+      "Don't turn the filter chips into capsules; their active treatment is softly squared.",
+      "Don't present unavailable metric readings as real values or imply that port checks cover UDP."
+    ]
+  }
+}
